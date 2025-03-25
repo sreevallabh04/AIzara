@@ -9,3 +9,5 @@ python-weather
 selenium
 webdriver-manager
 pyaudio
+groq
+python-dotenv
