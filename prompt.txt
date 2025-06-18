@@ -1,0 +1,81 @@
+Make Zara a fully autonomous, multimodal desktop assistant with voice, vision, memory, and tool execution using the local Ollama LLaMA 3.2 model. Use the existing modular codebase (zara/main.py, agent.py, tools.py, vision.py, memory.py) and follow these goals:
+
+🧠 1. Local LLM Integration
+
+Ensure the agent uses the local Ollama model (llama3.2) via the Python client, no Gemini API.
+
+All conversations and function calls should be routed through this local LLM.
+
+Maintain conversation history using SQLite (as already implemented).
+
+🎙️ 2. Conversational Agent & Function Calling
+
+Use LangChain or a lightweight custom implementation to allow natural language commands to trigger tools (functions).
+
+Examples:
+
+“Send an email to John saying I’m on the way.” → send_email(to="John", content="I'm on the way.")
+
+“Open WhatsApp and message Mom: 'Call me now'.” → send_whatsapp_message(contact="Mom", message="Call me now")
+
+🧰 3. Tools & Desktop Control
+
+Implement or complete the following tools in tools.py:
+
+open_whatsapp_desktop() → Use pygetwindow + pyautogui or pywinauto to activate the native app.
+
+send_whatsapp_message(contact, message) → Types and sends the message.
+
+search_google(query), open_file(path), play_music(), etc.
+
+👁️ 4. Real-Time Computer Vision
+
+Finish vision.py with object detection using MobileNet SSD.
+
+Add describe_camera_scene() tool that:
+
+Captures a webcam frame
+
+Runs object detection
+
+Returns and speaks a summary (e.g., “I see a person, laptop, and cup.”)
+
+🗃️ 5. Memory Expansion (Optional)
+
+Add long-term memory via SQLite or JSON:
+
+Store user preferences, contacts, and notes.
+
+Sample commands: “Remember my Wi-Fi password is xyz123.” or “What did I say yesterday?”
+
+🔄 6. Continuous Mode (Optional Power Feature)
+
+Allow a continuous listening mode using threading.
+
+On “Zara, activate assistant mode”, continuously listen, respond, and act.
+
+🧪 7. Testing & TTS
+
+Ensure text-to-speech works via pyttsx3.
+
+Validate the agent’s response flow: mic input → LLM reasoning → tool execution → TTS output.
+
+📁 Project Context
+
+Use the project already structured with:
+
+main.py (entry point)
+
+agent.py (LLM + LangChain)
+
+tools.py (email, web, WhatsApp, etc.)
+
+vision.py (camera tools)
+
+memory.py (conversation DB)
+
+Target: Make Zara feel like a local Jarvis with full desktop access, vision, and tools — all powered offline.
+
+Let me know if you need mock functions, UI integration, or a fast mode using keyboard shortcuts.
+
+💬 Prompt Ends
