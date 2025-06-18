@@ -24,6 +24,17 @@ class LoginState(Enum):
     SIGN_UP = "SignUp"
 
 
+class _AccountDescriptor:
+    def __init__(self, name):
+        self.name = name
+
+    def __get__(self, obj, cls) -> Optional[str]:
+        return obj._account_data.get(self.name)
+
+    def __set__(self, obj, value) -> None:
+        raise AttributeError("Cannot set readonly attribute")
+
+
 class Account:
     """Represents an account displayed in a FedCM account list.
 
@@ -31,41 +42,15 @@ class Account:
          https://w3c-fedid.github.io/FedCM/#webdriver-accountlist
     """
 
+    account_id = _AccountDescriptor("accountId")
+    email = _AccountDescriptor("email")
+    name = _AccountDescriptor("name")
+    given_name = _AccountDescriptor("givenName")
+    picture_url = _AccountDescriptor("pictureUrl")
+    idp_config_url = _AccountDescriptor("idpConfigUrl")
+    terms_of_service_url = _AccountDescriptor("termsOfServiceUrl")
+    privacy_policy_url = _AccountDescriptor("privacyPolicyUrl")
+    login_state = _AccountDescriptor("loginState")
+
     def __init__(self, account_data):
         self._account_data = account_data
-
-    @property
-    def account_id(self) -> Optional[str]:
-        return self._account_data.get("accountId")
-
-    @property
-    def email(self) -> Optional[str]:
-        return self._account_data.get("email")
-
-    @property
-    def name(self) -> Optional[str]:
-        return self._account_data.get("name")
-
-    @property
-    def given_name(self) -> Optional[str]:
-        return self._account_data.get("givenName")
-
-    @property
-    def picture_url(self) -> Optional[str]:
-        return self._account_data.get("pictureUrl")
-
-    @property
-    def idp_config_url(self) -> Optional[str]:
-        return self._account_data.get("idpConfigUrl")
-
-    @property
-    def terms_of_service_url(self) -> Optional[str]:
-        return self._account_data.get("termsOfServiceUrl")
-
-    @property
-    def privacy_policy_url(self) -> Optional[str]:
-        return self._account_data.get("privacyPolicyUrl")
-
-    @property
-    def login_state(self) -> Optional[str]:
-        return self._account_data.get("loginState")

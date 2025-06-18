@@ -178,7 +178,7 @@ class HostnameResolver(ABC):
             socket.SocketKind,
             int,
             str,
-            tuple[str, int] | tuple[str, int, int, int],
+            tuple[str, int] | tuple[str, int, int, int] | tuple[int, bytes],
         ]
     ]:
         """A custom implementation of :func:`~trio.socket.getaddrinfo`.
@@ -192,9 +192,7 @@ class HostnameResolver(ABC):
         Any required IDNA encoding is handled before calling this function;
         your implementation can assume that it will never see U-labels like
         ``"café.com"``, and only needs to handle A-labels like
-        ``b"xn--caf-dma.com"``.
-
-        """
+        ``b"xn--caf-dma.com"``."""  # spellchecker:disable-line
 
     @abstractmethod
     async def getnameinfo(

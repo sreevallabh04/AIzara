@@ -17,9 +17,7 @@ import sys
 from typing import (
     TYPE_CHECKING,
     Any,
-    Iterable,
     NoReturn,
-    TypeVar,
     Union,
     overload,
 )
@@ -31,10 +29,13 @@ from trio._util import NoPublicConstructor, final
 
 if TYPE_CHECKING:
     import builtins
+    from collections.abc import Iterable
     from socket import AddressFamily, SocketKind
     from types import TracebackType
 
     from typing_extensions import Buffer, Self, TypeAlias
+
+    from trio._socket import AddressFormat
 
 IPAddress: TypeAlias = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
 
@@ -80,9 +81,6 @@ def _scatter(data: bytes, buffers: Iterable[Buffer]) -> int:
     return written
 
 
-T_UDPEndpoint = TypeVar("T_UDPEndpoint", bound="UDPEndpoint")
-
-
 @attrs.frozen
 class UDPEndpoint:
     ip: IPAddress
@@ -99,9 +97,9 @@ class UDPEndpoint:
 
     @classmethod
     def from_python_sockaddr(
-        cls: type[T_UDPEndpoint],
+        cls,
         sockaddr: tuple[str, int] | tuple[str, int, int, int],
-    ) -> T_UDPEndpoint:
+    ) -> UDPEndpoint:
         ip, port = sockaddr[:2]
         return cls(ip=ipaddress.ip_address(ip), port=port)
 
@@ -153,7 +151,7 @@ class FakeHostnameResolver(trio.abc.HostnameResolver):
             SocketKind,
             int,
             str,
-            tuple[str, int] | tuple[str, int, int, int],
+            tuple[str, int] | tuple[str, int, int, int] | tuple[int, bytes],
         ]
     ]:
         raise NotImplementedError("FakeNet doesn't do fake DNS yet")
@@ -210,7 +208,7 @@ class FakeSocket(trio.socket.SocketType, metaclass=NoPublicConstructor):
         family: AddressFamily,
         type: SocketKind,
         proto: int,
-    ):
+    ) -> None:
         self._fake_net = fake_net
 
         if not family:  # pragma: no cover
@@ -313,7 +311,7 @@ class FakeSocket(trio.socket.SocketType, metaclass=NoPublicConstructor):
         buffers: Iterable[Buffer],
         ancdata: Iterable[tuple[int, int, Buffer]] = (),
         flags: int = 0,
-        address: Any | None = None,
+        address: AddressFormat | None = None,
     ) -> int:
         self._check_closed()
 
@@ -357,7 +355,12 @@ class FakeSocket(trio.socket.SocketType, metaclass=NoPublicConstructor):
         buffers: Iterable[Buffer],
         ancbufsize: int = 0,
         flags: int = 0,
-    ) -> tuple[int, list[tuple[int, int, bytes]], int, Any]:
+    ) -> tuple[
+        int,
+        list[tuple[int, int, bytes]],
+        int,
+        tuple[str, int] | tuple[str, int, int, int],
+    ]:
         if ancbufsize != 0:
             raise NotImplementedError("FakeNet doesn't support ancillary data")
         if flags != 0:
@@ -483,22 +486,27 @@ class FakeSocket(trio.socket.SocketType, metaclass=NoPublicConstructor):
     async def send(self, data: Buffer, flags: int = 0) -> int:
         return await self.sendto(data, flags, None)
 
+    # __ prefixed arguments because typeshed uses that and typechecker issues
     @overload
     async def sendto(
         self,
-        __data: Buffer,
+        __data: Buffer,  # noqa: PYI063
         __address: tuple[object, ...] | str | Buffer,
     ) -> int: ...
 
+    # __ prefixed arguments because typeshed uses that and typechecker issues
     @overload
     async def sendto(
         self,
-        __data: Buffer,
+        __data: Buffer,  # noqa: PYI063
         __flags: int,
-        __address: tuple[object, ...] | str | None | Buffer,
+        __address: tuple[object, ...] | str | Buffer | None,
     ) -> int: ...
 
-    async def sendto(self, *args: Any) -> int:
+    async def sendto(  # type: ignore[explicit-any]
+        self,
+        *args: Any,
+    ) -> int:
         data: Buffer
         flags: int
         address: tuple[object, ...] | str | Buffer
@@ -512,15 +520,19 @@ class FakeSocket(trio.socket.SocketType, metaclass=NoPublicConstructor):
         return await self._sendmsg([data], [], flags, address)
 
     async def recv(self, bufsize: int, flags: int = 0) -> bytes:
-        data, address = await self.recvfrom(bufsize, flags)
+        data, _address = await self.recvfrom(bufsize, flags)
         return data
 
     async def recv_into(self, buf: Buffer, nbytes: int = 0, flags: int = 0) -> int:
-        got_bytes, address = await self.recvfrom_into(buf, nbytes, flags)
+        got_bytes, _address = await self.recvfrom_into(buf, nbytes, flags)
         return got_bytes
 
-    async def recvfrom(self, bufsize: int, flags: int = 0) -> tuple[bytes, Any]:
-        data, ancdata, msg_flags, address = await self._recvmsg(bufsize, flags)
+    async def recvfrom(
+        self,
+        bufsize: int,
+        flags: int = 0,
+    ) -> tuple[bytes, AddressFormat]:
+        data, _ancdata, _msg_flags, address = await self._recvmsg(bufsize, flags)
         return data, address
 
     async def recvfrom_into(
@@ -528,10 +540,10 @@ class FakeSocket(trio.socket.SocketType, metaclass=NoPublicConstructor):
         buf: Buffer,
         nbytes: int = 0,
         flags: int = 0,
-    ) -> tuple[int, Any]:
+    ) -> tuple[int, AddressFormat]:
         if nbytes != 0 and nbytes != memoryview(buf).nbytes:
             raise NotImplementedError("partial recvfrom_into")
-        got_nbytes, ancdata, msg_flags, address = await self._recvmsg_into(
+        got_nbytes, _ancdata, _msg_flags, address = await self._recvmsg_into(
             [buf],
             0,
             flags,
@@ -543,7 +555,7 @@ class FakeSocket(trio.socket.SocketType, metaclass=NoPublicConstructor):
         bufsize: int,
         ancbufsize: int = 0,
         flags: int = 0,
-    ) -> tuple[bytes, list[tuple[int, int, bytes]], int, Any]:
+    ) -> tuple[bytes, list[tuple[int, int, bytes]], int, AddressFormat]:
         buf = bytearray(bufsize)
         got_nbytes, ancdata, msg_flags, address = await self._recvmsg_into(
             [buf],

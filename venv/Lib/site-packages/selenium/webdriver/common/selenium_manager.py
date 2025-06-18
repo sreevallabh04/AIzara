@@ -22,8 +22,7 @@ import subprocess
 import sys
 import sysconfig
 from pathlib import Path
-from typing import List
-from typing import Optional
+from typing import List, Optional
 
 from selenium.common import WebDriverException
 

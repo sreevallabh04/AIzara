@@ -4,6 +4,7 @@ import contextlib
 import sys
 import weakref
 from math import inf
+from types import AsyncGeneratorType
 from typing import TYPE_CHECKING, NoReturn
 
 import pytest
@@ -42,7 +43,7 @@ def test_asyncgen_basics() -> None:
 
     async def async_main() -> None:
         # GC'ed before exhausted
-        with pytest.warns(
+        with pytest.warns(  # noqa: PT031
             ResourceWarning,
             match="Async generator.*collected before.*exhausted",
         ):
@@ -88,6 +89,7 @@ def test_asyncgen_basics() -> None:
     _core.run(async_main)
     assert collected.pop() == "outlived run"
     for agen in saved:
+        assert isinstance(agen, AsyncGeneratorType)
         assert agen.ag_frame is None  # all should now be exhausted
 
 
@@ -110,7 +112,7 @@ async def test_asyncgen_throws_during_finalization(
     await _core.wait_all_tasks_blocked()
     assert record == ["crashing"]
     # Following type ignore is because typing for LogCaptureFixture is wrong
-    exc_type, exc_value, exc_traceback = caplog.records[0].exc_info  # type: ignore[misc]
+    exc_type, exc_value, _exc_traceback = caplog.records[0].exc_info  # type: ignore[misc]
     assert exc_type is ValueError
     assert str(exc_value) == "oops"
     assert "during finalization of async generator" in caplog.records[0].message
@@ -227,8 +229,8 @@ def test_last_minute_gc_edge_case() -> None:
     # failure as small as we want.
     for _attempt in range(50):
         needs_retry = False
-        del record[:]
-        del saved[:]
+        record.clear()
+        saved.clear()
         _core.run(async_main)
         if needs_retry:  # pragma: no cover
             assert record == ["cleaned up"]
@@ -301,9 +303,11 @@ def test_delegation_to_existing_hooks() -> None:
     record = []
 
     def my_firstiter(agen: AsyncGenerator[object, NoReturn]) -> None:
+        assert isinstance(agen, AsyncGeneratorType)
         record.append("firstiter " + agen.ag_frame.f_locals["arg"])
 
     def my_finalizer(agen: AsyncGenerator[object, NoReturn]) -> None:
+        assert isinstance(agen, AsyncGeneratorType)
         record.append("finalizer " + agen.ag_frame.f_locals["arg"])
 
     async def example(arg: str) -> AsyncGenerator[int, None]:

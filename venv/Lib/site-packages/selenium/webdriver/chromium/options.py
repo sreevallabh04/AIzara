@@ -17,11 +17,7 @@
 
 import base64
 import os
-from typing import BinaryIO
-from typing import Dict
-from typing import List
-from typing import Optional
-from typing import Union
+from typing import BinaryIO, Dict, List, Optional, Union
 
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from selenium.webdriver.common.options import ArgOptions

@@ -1,4 +1,4 @@
-# cython: language_level=3
+# cython: language_level=3, freethreading_compatible=True
 from types import GenericAlias
 
 
@@ -36,6 +36,8 @@ cdef class under_cached_property:
 
     def __set__(self, inst, value):
         raise AttributeError("cached property is read-only")
+
+    __class_getitem__ = classmethod(GenericAlias)
 
 
 cdef class cached_property:

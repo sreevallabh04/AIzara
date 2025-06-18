@@ -3,6 +3,8 @@
 #
 # Note that the codes should be written in decimal notation!
 
+from ctypes import c_long
+
 S_OK = 0
 S_FALSE = 1
 
@@ -53,13 +55,15 @@ DISP_E_UNKNOWNINTERFACE = -2147352575  # 0x80020001
 RPC_E_CHANGED_MODE = -2147417850  # 0x80010106
 RPC_E_SERVERFAULT = -2147417851  # 0x80010105
 
+RPC_E_NO_SYNC = -2147417824  # 0x80010120
+RPC_S_CALLPENDING = -2147417835  # 0x80010115
+
 # 'macros' and constants to create your own HRESULT values:
 
 
-def MAKE_HRESULT(sev, fac, code):
+def MAKE_HRESULT(sev: int, fac: int, code: int) -> int:
+    """Creates an HRESULT value from its component pieces."""
     # A hresult is SIGNED in comtypes
-    from ctypes import c_long
-
     return c_long((sev << 31 | fac << 16 | code)).value
 
 
@@ -70,12 +74,18 @@ FACILITY_ITF = 4
 FACILITY_WIN32 = 7
 
 
-def HRESULT_FROM_WIN32(x):
+def HRESULT_FROM_WIN32(x: int) -> int:
+    """Converts a system error code to an HRESULT value."""
     # make signed
-    from ctypes import c_long
-
     x = c_long(x).value
     if x < 0:
         return x
     # 0x80000000 | FACILITY_WIN32 << 16 | x & 0xFFFF
     return c_long(0x80070000 | (x & 0xFFFF)).value
+
+
+# Win32 error codes are defined as unsigned 32-bit integers. However, to
+# ensure compatibility with COM and other HRESULT-based APIs, Windows converts
+# them into HRESULT values by setting the high bit, ensuring a consistent way
+# to indicate failure across these APIs.
+RPC_S_SERVER_UNAVAILABLE = -2147023174  # 0x800706BA (WIN32: 1722 0x6BA)

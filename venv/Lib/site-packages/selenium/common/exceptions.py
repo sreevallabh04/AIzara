@@ -16,8 +16,7 @@
 # under the License.
 """Exceptions that may happen in all the webdriver code."""
 
-from typing import Optional
-from typing import Sequence
+from typing import Optional, Sequence
 
 SUPPORT_MSG = "For documentation on this error, please visit:"
 ERROR_URL = "https://www.selenium.dev/documentation/webdriver/troubleshooting/errors"

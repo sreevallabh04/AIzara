@@ -3,7 +3,7 @@ from __future__ import annotations
 import errno
 import socket as stdlib_socket
 import sys
-from typing import Sequence
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -15,6 +15,9 @@ from ..testing import (
     wait_all_tasks_blocked,
 )
 from .test_socket import setsockopt_tests
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 async def test_SocketStream_basics() -> None:
@@ -28,7 +31,7 @@ async def test_SocketStream_basics() -> None:
     with tsocket.socket(type=tsocket.SOCK_DGRAM) as sock:
         with pytest.raises(
             ValueError,
-            match="^SocketStream requires a SOCK_STREAM socket$",
+            match=r"^SocketStream requires a SOCK_STREAM socket$",
         ):
             # TODO: does not raise an error?
             SocketStream(sock)
@@ -131,7 +134,10 @@ async def fill_stream(s: SocketStream) -> None:
 
 
 async def test_SocketStream_generic() -> None:
-    async def stream_maker() -> tuple[SocketStream, SocketStream]:
+    async def stream_maker() -> tuple[
+        SocketStream,
+        SocketStream,
+    ]:
         left, right = tsocket.socketpair()
         return SocketStream(left), SocketStream(right)
 
@@ -157,7 +163,7 @@ async def test_SocketListener() -> None:
         await s.bind(("127.0.0.1", 0))
         with pytest.raises(
             ValueError,
-            match="^SocketListener requires a SOCK_STREAM socket$",
+            match=r"^SocketListener requires a SOCK_STREAM socket$",
         ) as excinfo:
             SocketListener(s)
         excinfo.match(r".*SOCK_STREAM")
@@ -169,7 +175,7 @@ async def test_SocketListener() -> None:
             await s.bind(("127.0.0.1", 0))
             with pytest.raises(
                 ValueError,
-                match="^SocketListener requires a listening socket$",
+                match=r"^SocketListener requires a listening socket$",
             ) as excinfo:
                 SocketListener(s)
             excinfo.match(r".*listen")

@@ -236,7 +236,7 @@ async def test_Sequencer_cancel() -> None:
 
 
 ################################################################
-async def test__assert_raises() -> None:
+def test__assert_raises() -> None:
     with pytest.raises(AssertionError):
         with _assert_raises(RuntimeError):
             1 + 1  # noqa: B018  # "useless expression"
@@ -677,7 +677,7 @@ def test_trio_test() -> None:
         autojump_clock: object,
     ) -> None: ...  # pragma: no cover
 
-    with pytest.raises(ValueError, match="^too many clocks spoil the broth!$"):
+    with pytest.raises(ValueError, match=r"^too many clocks spoil the broth!$"):
         trio_test(busy_kitchen)(
             mock_clock=MockClock(),
             autojump_clock=MockClock(autojump_threshold=0),

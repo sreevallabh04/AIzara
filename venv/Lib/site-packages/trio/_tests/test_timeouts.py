@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 import time
-from typing import Awaitable, Callable, Protocol, TypeVar
+from typing import TYPE_CHECKING, Protocol, TypeVar
 
 import outcome
 import pytest
@@ -19,6 +21,9 @@ from .._timeouts import (
     sleep_until,
 )
 from ..testing import assert_checkpoints
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
 T = TypeVar("T")
 
@@ -110,7 +115,7 @@ async def test_context_shields_from_outer(scope: TimeoutScope) -> None:
         outer.cancel()
         try:
             await trio.lowlevel.checkpoint()
-        except trio.Cancelled:
+        except trio.Cancelled:  # pragma: no cover
             pytest.fail("shield didn't work")
         inner.shield = False
         with pytest.raises(trio.Cancelled):
@@ -132,10 +137,14 @@ async def test_move_on_after_moves_on_even_if_shielded() -> None:
 @slow
 async def test_fail_after_fails_even_if_shielded() -> None:
     async def task() -> None:
+        # fmt: off
+        # Remove after 3.9 unsupported, black formats in a way that breaks if
+        # you do `-X oldparser`
         with pytest.raises(TooSlowError), _core.CancelScope() as outer, fail_after(
             TARGET,
             shield=True,
         ):
+            # fmt: on
             outer.cancel()
             # The outer scope is cancelled, but this task is protected by the
             # shield, so it manages to get to sleep until deadline is met
@@ -180,7 +189,7 @@ async def test_timeouts_raise_value_error() -> None:
     ):
         with pytest.raises(
             ValueError,
-            match="^(deadline|`seconds`) must (not )*be (non-negative|NaN)$",
+            match=r"^(deadline|`seconds`) must (not )*be (non-negative|NaN)$",
         ):
             await fun(val)
 
@@ -194,7 +203,7 @@ async def test_timeouts_raise_value_error() -> None:
     ):
         with pytest.raises(
             ValueError,
-            match="^(deadline|`seconds`) must (not )*be (non-negative|NaN)$",
+            match=r"^(deadline|`seconds`) must (not )*be (non-negative|NaN)$",
         ):
             with cm(val):
                 pass  # pragma: no cover

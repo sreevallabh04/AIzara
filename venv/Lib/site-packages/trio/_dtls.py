@@ -19,12 +19,7 @@ import weakref
 from itertools import count
 from typing import (
     TYPE_CHECKING,
-    Any,
-    Awaitable,
-    Callable,
     Generic,
-    Iterable,
-    Iterator,
     TypeVar,
     Union,
 )
@@ -37,12 +32,14 @@ import trio
 from ._util import NoPublicConstructor, final
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Iterable, Iterator
     from types import TracebackType
 
     # See DTLSEndpoint.__init__ for why this is imported here
-    from OpenSSL import SSL  # noqa: TCH004
+    from OpenSSL import SSL  # noqa: TC004
     from typing_extensions import Self, TypeAlias, TypeVarTuple, Unpack
 
+    from trio._socket import AddressFormat
     from trio.socket import SocketType
 
     PosArgsT = TypeVarTuple("PosArgsT")
@@ -61,7 +58,7 @@ def worst_case_mtu(sock: SocketType) -> int:
     if sock.family == trio.socket.AF_INET:
         return 576 - packet_header_overhead(sock)
     else:
-        return 1280 - packet_header_overhead(sock)
+        return 1280 - packet_header_overhead(sock)  # TODO: test this line
 
 
 def best_guess_mtu(sock: SocketType) -> int:
@@ -225,7 +222,7 @@ def decode_handshake_fragment_untrusted(payload: bytes) -> HandshakeFragment:
             frag_offset_bytes,
             frag_len_bytes,
         ) = HANDSHAKE_MESSAGE_HEADER.unpack_from(payload)
-    except struct.error as exc:
+    except struct.error as exc:  # TODO: test this line
         raise BadPacket("bad handshake message header") from exc
     # 'struct' doesn't have built-in support for 24-bit integers, so we
     # have to do it by hand. These can't fail.
@@ -428,14 +425,14 @@ class RecordEncoder:
         for message in messages:
             if isinstance(message, OpaqueHandshakeMessage):
                 encoded = encode_record(message.record)
-                if mtu - len(packet) - len(encoded) <= 0:
+                if mtu - len(packet) - len(encoded) <= 0:  # TODO: test this line
                     packets.append(packet)
                     packet = bytearray()
                 packet += encoded
                 assert len(packet) <= mtu
             elif isinstance(message, PseudoHandshakeMessage):
                 space = mtu - len(packet) - RECORD_HEADER.size - len(message.payload)
-                if space <= 0:
+                if space <= 0:  # TODO: test this line
                     packets.append(packet)
                     packet = bytearray()
                 packet += RECORD_HEADER.pack(
@@ -561,10 +558,9 @@ def _current_cookie_tick() -> int:
 # Simple deterministic and invertible serializer -- i.e., a useful tool for converting
 # structured data into something we can cryptographically sign.
 def _signable(*fields: bytes) -> bytes:
-    out = []
+    out: list[bytes] = []
     for field in fields:
-        out.append(struct.pack("!Q", len(field)))
-        out.append(field)
+        out.extend((struct.pack("!Q", len(field)), field))
     return b"".join(out)
 
 
@@ -572,7 +568,7 @@ def _make_cookie(
     key: bytes,
     salt: bytes,
     tick: int,
-    address: Any,
+    address: AddressFormat,
     client_hello_bits: bytes,
 ) -> bytes:
     assert len(salt) == SALT_BYTES
@@ -593,7 +589,7 @@ def _make_cookie(
 def valid_cookie(
     key: bytes,
     cookie: bytes,
-    address: Any,
+    address: AddressFormat,
     client_hello_bits: bytes,
 ) -> bool:
     if len(cookie) > SALT_BYTES:
@@ -622,7 +618,7 @@ def valid_cookie(
 
 def challenge_for(
     key: bytes,
-    address: Any,
+    address: AddressFormat,
     epoch_seqno: int,
     client_hello_bits: bytes,
 ) -> bytes:
@@ -669,7 +665,7 @@ _T = TypeVar("_T")
 
 
 class _Queue(Generic[_T]):
-    def __init__(self, incoming_packets_buffer: int | float):  # noqa: PYI041
+    def __init__(self, incoming_packets_buffer: int | float) -> None:  # noqa: PYI041
         self.s, self.r = trio.open_memory_channel[_T](incoming_packets_buffer)
 
 
@@ -686,7 +682,7 @@ def _read_loop(read_fn: Callable[[int], bytes]) -> bytes:
 
 async def handle_client_hello_untrusted(
     endpoint: DTLSEndpoint,
-    address: Any,
+    address: AddressFormat,
     packet: bytes,
 ) -> None:
     # it's trivial to write a simple function that directly calls this to
@@ -737,23 +733,6 @@ async def handle_client_hello_untrusted(
             # ...OpenSSL didn't like it, so I guess we didn't have a valid ClientHello
             # after all.
             return
-
-        # Some old versions of OpenSSL have a bug with memory BIOs, where DTLSv1_listen
-        # consumes the ClientHello out of the BIO, but then do_handshake expects the
-        # ClientHello to still be in there (but not the one that ships with Ubuntu
-        # 20.04). In particular, this is known to affect the OpenSSL v1.1.1 that ships
-        # with Ubuntu 18.04. To work around this, we deliver a second copy of the
-        # ClientHello after DTLSv1_listen has completed. This is safe to do
-        # unconditionally, because on newer versions of OpenSSL, the second ClientHello
-        # is treated as a duplicate packet, which is a normal thing that can happen over
-        # UDP. For more details, see:
-        #
-        #     https://github.com/pyca/pyopenssl/blob/e84e7b57d1838de70ab7a27089fbee78ce0d2106/tests/test_ssl.py#L4226-L4293
-        #
-        # This was fixed in v1.1.1a, and all later versions. So maybe in 2024 or so we
-        # can delete this. The fix landed in OpenSSL master as 079ef6bd534d2, and then
-        # was backported to the 1.1.1 branch as d1bfd8076e28.
-        stream._ssl.bio_write(packet)
 
         # Check if we have an existing association
         old_stream = endpoint._streams.get(address)
@@ -864,7 +843,7 @@ class DTLSChannel(trio.abc.Channel[bytes], metaclass=NoPublicConstructor):
     def __init__(
         self,
         endpoint: DTLSEndpoint,
-        peer_address: Any,
+        peer_address: AddressFormat,
         ctx: SSL.Context,
     ) -> None:
         self.endpoint = endpoint
@@ -1060,7 +1039,7 @@ class DTLSChannel(trio.abc.Channel[bytes], metaclass=NoPublicConstructor):
                             if (
                                 isinstance(maybe_volley[0], PseudoHandshakeMessage)
                                 and maybe_volley[0].content_type == ContentType.alert
-                            ):
+                            ):  # TODO: test this line
                                 # we're sending an alert (e.g. due to a corrupted
                                 # packet). We want to send it once, but don't save it to
                                 # retransmit -- keep the last volley as the current
@@ -1240,7 +1219,9 @@ class DTLSEndpoint:
         # as a peer provides a valid cookie, we can immediately tear down the
         # old connection.
         # {remote address: DTLSChannel}
-        self._streams: WeakValueDictionary[Any, DTLSChannel] = WeakValueDictionary()
+        self._streams: WeakValueDictionary[AddressFormat, DTLSChannel] = (
+            WeakValueDictionary()
+        )
         self._listening_context: SSL.Context | None = None
         self._listening_key: bytes | None = None
         self._incoming_connections_q = _Queue[DTLSChannel](float("inf"))
@@ -1345,9 +1326,8 @@ class DTLSEndpoint:
             raise trio.BusyResourceError("another task is already listening")
         try:
             self.socket.getsockname()
-        except OSError:
-            # TODO: Write test that triggers this
-            raise RuntimeError(  # pragma: no cover
+        except OSError:  # TODO: test this line
+            raise RuntimeError(
                 "DTLS socket must be bound before it can serve",
             ) from None
         self._ensure_receive_loop()

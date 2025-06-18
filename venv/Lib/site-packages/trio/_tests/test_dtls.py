@@ -75,7 +75,9 @@ async def dtls_echo_server(
                     print("server starting do_handshake")
                     await dtls_channel.do_handshake()
                     print("server finished do_handshake")
-                    async for packet in dtls_channel:
+                    # no branch for leaving this for loop because we only leave
+                    # a channel by cancellation.
+                    async for packet in dtls_channel:  # pragma: no branch
                         print(f"echoing {packet!r} -> {dtls_channel.peer_address!r}")
                         await dtls_channel.send(packet)
                 except trio.BrokenResourceError:  # pragma: no cover
@@ -91,7 +93,7 @@ async def dtls_echo_server(
 
 @parametrize_ipv6
 async def test_smoke(ipv6: bool) -> None:
-    async with dtls_echo_server(ipv6=ipv6) as (server_endpoint, address):
+    async with dtls_echo_server(ipv6=ipv6) as (_server_endpoint, address):
         with endpoint(ipv6=ipv6) as client_endpoint:
             client_channel = client_endpoint.connect(address, client_ctx)
             with pytest.raises(trio.NeedHandshakeError):
@@ -105,7 +107,7 @@ async def test_smoke(ipv6: bool) -> None:
 
             with pytest.raises(
                 ValueError,
-                match="^openssl doesn't support sending empty DTLS packets$",
+                match=r"^openssl doesn't support sending empty DTLS packets$",
             ):
                 await client_channel.send(b"")
 
@@ -260,7 +262,7 @@ async def test_channel_closing() -> None:
 
 
 async def test_serve_exits_cleanly_on_close() -> None:
-    async with dtls_echo_server(autocancel=False) as (server_endpoint, address):
+    async with dtls_echo_server(autocancel=False) as (server_endpoint, _address):
         server_endpoint.close()
         # Testing that the nursery exits even without being cancelled
     # close is idempotent
@@ -297,7 +299,7 @@ async def test_client_multiplex() -> None:
 
 async def test_dtls_over_dgram_only() -> None:
     with trio.socket.socket() as s:
-        with pytest.raises(ValueError, match="^DTLS requires a SOCK_DGRAM socket$"):
+        with pytest.raises(ValueError, match=r"^DTLS requires a SOCK_DGRAM socket$"):
             DTLSEndpoint(s)
 
 
@@ -679,7 +681,7 @@ async def test_explicit_tiny_mtu_is_respected() -> None:
 
     fn.route_packet = route_packet  # type: ignore[assignment]  # TODO add type annotations for FakeNet
 
-    async with dtls_echo_server(mtu=MTU) as (server, address):
+    async with dtls_echo_server(mtu=MTU) as (_server, address):
         with endpoint() as client:
             channel = client.connect(address, client_ctx)
             channel.set_ciphertext_mtu(MTU)
@@ -747,7 +749,7 @@ async def test_system_task_cleaned_up_on_gc() -> None:
         during_tasks = trio.lowlevel.current_statistics().tasks_living
         return during_tasks
 
-    with pytest.warns(ResourceWarning):
+    with pytest.warns(ResourceWarning):  # noqa: PT031
         during_tasks = await start_and_forget_endpoint()
         await trio.testing.wait_all_tasks_blocked()
         gc_collect_harder()
@@ -763,7 +765,7 @@ async def test_system_task_cleaned_up_on_gc() -> None:
 async def test_gc_before_system_task_starts() -> None:
     e = endpoint()
 
-    with pytest.warns(ResourceWarning):
+    with pytest.warns(ResourceWarning):  # noqa: PT031
         del e
         gc_collect_harder()
 
@@ -786,7 +788,7 @@ async def test_gc_as_packet_received() -> None:
     # At this point, the endpoint's receive loop has been marked runnable because it
     # just received a packet; closing the endpoint socket won't interrupt that. But by
     # the time it wakes up to process the packet, the endpoint will be gone.
-    with pytest.warns(ResourceWarning):
+    with pytest.warns(ResourceWarning):  # noqa: PT031
         del e
         gc_collect_harder()
 
@@ -803,7 +805,7 @@ def test_gc_after_trio_exits() -> None:
         return endpoint()
 
     e = trio.run(main)
-    with pytest.warns(ResourceWarning):
+    with pytest.warns(ResourceWarning):  # noqa: PT031
         del e
         gc_collect_harder()
 

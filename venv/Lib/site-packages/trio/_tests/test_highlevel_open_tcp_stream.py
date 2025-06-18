@@ -3,7 +3,7 @@ from __future__ import annotations
 import socket
 import sys
 from socket import AddressFamily, SocketKind
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING
 
 import attrs
 import pytest
@@ -19,6 +19,8 @@ from trio.socket import AF_INET, AF_INET6, IPPROTO_TCP, SOCK_STREAM, SocketType
 from trio.testing import Matcher, RaisesGroup
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from trio.testing import MockClock
 
 if sys.version_info < (3, 11):
@@ -123,7 +125,7 @@ async def test_open_tcp_stream_real_socket_smoketest() -> None:
 
 
 async def test_open_tcp_stream_input_validation() -> None:
-    with pytest.raises(ValueError, match="^host must be str or bytes, not None$"):
+    with pytest.raises(ValueError, match=r"^host must be str or bytes, not None$"):
         await open_tcp_stream(None, 80)  # type: ignore[arg-type]
     with pytest.raises(TypeError):
         await open_tcp_stream("127.0.0.1", b"80")  # type: ignore[arg-type]
@@ -285,9 +287,9 @@ class Scenario(trio.abc.SocketFactory, trio.abc.HostnameResolver):
         SocketKind,
         int,
         str,
-        tuple[str, int, int, int] | tuple[str, int],
+        tuple[str, int, int, int] | tuple[str, int] | tuple[int, bytes],
     ]:
-        sockaddr: tuple[str, int] | tuple[str, int, int, int]
+        sockaddr: tuple[str, int] | tuple[str, int, int, int] | tuple[int, bytes]
         if ":" in ip:
             family = trio.socket.AF_INET6
             sockaddr = (ip, self.port, 0, 0)
@@ -310,7 +312,7 @@ class Scenario(trio.abc.SocketFactory, trio.abc.HostnameResolver):
             SocketKind,
             int,
             str,
-            tuple[str, int, int, int] | tuple[str, int],
+            tuple[str, int, int, int] | tuple[str, int] | tuple[int, bytes],
         ]
     ]:
         assert host == b"test.example.com"
@@ -358,7 +360,8 @@ async def run_scenario(
     # If this is True, we require there to be an exception, and return
     #   (exception, scenario object)
     expect_error: tuple[type[BaseException], ...] | type[BaseException] = (),
-    **kwargs: Any,
+    happy_eyeballs_delay: float | None = 0.25,
+    local_address: str | None = None,
 ) -> tuple[SocketType, Scenario] | tuple[BaseException, Scenario]:
     supported_families = set()
     if ipv4_supported:
@@ -370,7 +373,12 @@ async def run_scenario(
     trio.socket.set_custom_socket_factory(scenario)
 
     try:
-        stream = await open_tcp_stream("test.example.com", port, **kwargs)
+        stream = await open_tcp_stream(
+            "test.example.com",
+            port,
+            happy_eyeballs_delay=happy_eyeballs_delay,
+            local_address=local_address,
+        )
         assert expect_error == ()
         scenario.check(stream.socket)
         return (stream.socket, scenario)
@@ -382,21 +390,21 @@ async def run_scenario(
 
 
 async def test_one_host_quick_success(autojump_clock: MockClock) -> None:
-    sock, scenario = await run_scenario(80, [("1.2.3.4", 0.123, "success")])
+    sock, _scenario = await run_scenario(80, [("1.2.3.4", 0.123, "success")])
     assert isinstance(sock, FakeSocket)
     assert sock.ip == "1.2.3.4"
     assert trio.current_time() == 0.123
 
 
 async def test_one_host_slow_success(autojump_clock: MockClock) -> None:
-    sock, scenario = await run_scenario(81, [("1.2.3.4", 100, "success")])
+    sock, _scenario = await run_scenario(81, [("1.2.3.4", 100, "success")])
     assert isinstance(sock, FakeSocket)
     assert sock.ip == "1.2.3.4"
     assert trio.current_time() == 100
 
 
 async def test_one_host_quick_fail(autojump_clock: MockClock) -> None:
-    exc, scenario = await run_scenario(
+    exc, _scenario = await run_scenario(
         82,
         [("1.2.3.4", 0.123, "error")],
         expect_error=OSError,
@@ -406,7 +414,7 @@ async def test_one_host_quick_fail(autojump_clock: MockClock) -> None:
 
 
 async def test_one_host_slow_fail(autojump_clock: MockClock) -> None:
-    exc, scenario = await run_scenario(
+    exc, _scenario = await run_scenario(
         83,
         [("1.2.3.4", 100, "error")],
         expect_error=OSError,
@@ -416,7 +424,7 @@ async def test_one_host_slow_fail(autojump_clock: MockClock) -> None:
 
 
 async def test_one_host_failed_after_connect(autojump_clock: MockClock) -> None:
-    exc, scenario = await run_scenario(
+    exc, _scenario = await run_scenario(
         83,
         [("1.2.3.4", 1, "postconnect_fail")],
         expect_error=KeyboardInterrupt,
@@ -656,7 +664,7 @@ async def test_handles_no_ipv6(autojump_clock: MockClock) -> None:
 
 
 async def test_no_hosts(autojump_clock: MockClock) -> None:
-    exc, scenario = await run_scenario(80, [], expect_error=OSError)
+    exc, _scenario = await run_scenario(80, [], expect_error=OSError)
     assert "no results found" in str(exc)
 
 

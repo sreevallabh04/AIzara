@@ -15,8 +15,16 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
-import groq
+import google.generativeai as genai
 from dotenv import load_dotenv
+import sqlite3
+import smtplib
+from email.message import EmailMessage
+import cv2
+from PIL import Image
+import io
+import urllib.request
+import numpy as np
 
 # Load environment variables
 load_dotenv()
@@ -24,16 +32,61 @@ load_dotenv()
 # API Keys
 newsapi_key = "5d7bb59ceb154f1ead9161942835845e"  # NewsAPI key
 weather_api_key = "029fd7af99a54f22ac6173050240108"  # Replace with your actual Weather API key
-groq_api_key = os.getenv("GROQ_API_KEY")  # Get Groq API key from environment variable
+gemini_api_key = os.getenv("GEMINI_API_KEY")  # Load Gemini API key from environment variable
 
-# Initialize Groq client
-groq_client = groq.Client(api_key=groq_api_key)
+# Initialize Gemini client
+genai.configure(api_key=gemini_api_key)
 
 # Initialize TTS and STT engines
 listener = sr.Recognizer()
 engine = pyttsx3.init()
 engine.setProperty('voice', engine.getProperty('voices')[1].id)  # Use a female voice
 engine.setProperty('rate', 140)
+
+# Database setup
+DB_PATH = 'zara_assistant.db'
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS conversation_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        role TEXT,
+        content TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS user_data (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key TEXT,
+        value TEXT
+    )''')
+    conn.commit()
+    conn.close()
+
+init_db()
+
+# Conversation memory helpers
+def save_conversation(role, content):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('INSERT INTO conversation_history (role, content) VALUES (?, ?)', (role, content))
+    conn.commit()
+    conn.close()
+
+def load_recent_conversation(n=10):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT role, content FROM conversation_history ORDER BY id DESC LIMIT ?', (n,))
+    rows = c.fetchall()
+    conn.close()
+    return rows[::-1]  # Return in chronological order
+
+# Moderation helper
+def moderate_content(text):
+    banned_words = ["badword1", "badword2"]
+    for word in banned_words:
+        if word in text.lower():
+            return False
+    return True
 
 def talk(text):
     """Speak the given text aloud."""
@@ -61,20 +114,20 @@ def take_command(trigger_word_active=True):
     return command
     
 def get_ai_response(query):
-    """Get a response from Groq AI for complex queries."""
+    if not gemini_api_key:
+        return "Gemini API key is not set. Please set the API key."
     try:
-        completion = groq_client.chat.completions.create(
-            model="llama3-70b-8192",
-            messages=[
-                {"role": "system", "content": "You are Zara, a helpful virtual assistant. Provide concise, accurate responses."},
-                {"role": "user", "content": query}
-            ],
-            temperature=0.5,
-            max_tokens=500,
-        )
-        return completion.choices[0].message.content
+        # Persona system prompt
+        system_prompt = {"role": "system", "content": "You are Zara, a helpful, safe, and conversational AI assistant. Always respond as Zara."}
+        # Load last 10 exchanges
+        history = load_recent_conversation(10)
+        context = [system_prompt] + [{"role": r, "content": c} for r, c in history] + [{"role": "user", "content": query}]
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(context)
+        save_conversation("user", query)
+        save_conversation("assistant", response.text)
+        return response.text
     except Exception as e:
-        print(f"Error with Groq API: {e}")
         return "I'm having trouble connecting to my knowledge base right now."
 
 def get_wikipedia_summary(query):
@@ -135,163 +188,18 @@ def get_news():
     except Exception as e:
         return [f"Error fetching news: {e}"]
 
+def is_safe_path(file_path):
+    safe_dirs = [os.path.join(os.path.expanduser("~"), d) for d in ["Desktop", "Documents"]]
+    abs_path = os.path.abspath(file_path)
+    return any(abs_path.startswith(os.path.abspath(safe)) for safe in safe_dirs)
+
 def open_file(file_path):
-    """Open a file using the default application with enhanced search capabilities."""
-    try:
-        # Convert file_path to lowercase for case-insensitive matching
-        file_path_lower = file_path.lower()
-        
-        # Handle common locations with priorities
-        common_locations = {
-            "documents": os.path.join(os.path.expanduser("~"), "Documents"),
-            "downloads": os.path.join(os.path.expanduser("~"), "Downloads"),
-            "desktop": os.path.join(os.path.expanduser("~"), "Desktop"),
-            "pictures": os.path.join(os.path.expanduser("~"), "Pictures"),
-            "music": os.path.join(os.path.expanduser("~"), "Music"),
-            "videos": os.path.join(os.path.expanduser("~"), "Videos")
-        }
-        
-        # If no specific location was mentioned, these are the locations to search in priority order
-        default_search_locations = [
-            os.path.join(os.path.expanduser("~"), "Desktop"),
-            os.path.join(os.path.expanduser("~"), "Documents"),
-            os.path.join(os.path.expanduser("~"), "Downloads"),
-            os.getcwd()
-        ]
-        
-        # Check if the path starts with a common location (case-insensitive)
-        search_directories = []
-        base_filename = file_path
-        location_specified = False
-        
-        for location_name, location_path in common_locations.items():
-            if file_path_lower.startswith(location_name.lower()):
-                location_specified = True
-                # Use the original case for removing the location prefix
-                location_index = file_path_lower.find(location_name.lower())
-                location_len = len(location_name)
-                base_filename = file_path[location_index + location_len:].strip()
-                search_directories.append(location_path)
-                break
-        
-        # If no common location was found in the command
-        if not location_specified:
-            if os.path.dirname(file_path):
-                # If path contains a directory separator
-                search_directories.append(os.path.dirname(file_path))
-                base_filename = os.path.basename(file_path)
-            else:
-                # No location specified, search in all default locations
-                search_directories = default_search_locations
-                base_filename = file_path
-        
-        # Remove extension if present for searching
-        name_without_ext = os.path.splitext(base_filename)[0].strip()
-        if not name_without_ext:  # If empty after stripping
-            talk("Please specify a valid filename.")
-            return False
-            
-        # Class to store file match information for sorting
-        class FileMatch:
-            def __init__(self, filename, path, score, mod_time):
-                self.filename = filename
-                self.full_path = path
-                self.score = score  # Higher is better match
-                self.mod_time = mod_time
-                
-            def __lt__(self, other):
-                # First sort by score (descending), then by modification time (descending)
-                if self.score != other.score:
-                    return self.score > other.score
-                return self.mod_time > other.mod_time
-        
-        # Collect all potential matches across all search directories
-        all_matches = []
-        
-        for search_dir in search_directories:
-            # First try the exact file path
-            full_path = os.path.join(search_dir, base_filename)
-            if os.path.exists(full_path) and os.path.isfile(full_path):
-                mod_time = os.path.getmtime(full_path)
-                # Exact match with extension gets highest score
-                all_matches.append(FileMatch(os.path.basename(full_path), full_path, 100, mod_time))
-                continue  # Skip to next directory if exact match found
-            
-            # Function to recursively search for files
-            def search_directory(directory, depth=0, max_depth=2):
-                if depth > max_depth:
-                    return  # Limit recursion depth
-                
-                try:
-                    for item in os.listdir(directory):
-                        item_path = os.path.join(directory, item)
-                        
-                        # Skip hidden files/folders
-                        if item.startswith('.'):
-                            continue
-                            
-                        # If it's a file, check for matches
-                        if os.path.isfile(item_path):
-                            item_lower = item.lower()
-                            name_without_ext_lower = name_without_ext.lower()
-                            item_name_without_ext = os.path.splitext(item)[0].lower()
-                            
-                            # Calculate match score based on various criteria
-                            score = 0
-                            
-                            # Exact match without extension
-                            if item_name_without_ext == name_without_ext_lower:
-                                score = 90
-                            # Item contains the search term as a whole word
-                            elif name_without_ext_lower in item_name_without_ext.split():
-                                score = 75
-                            # Item filename starts with the search term
-                            elif item_name_without_ext.startswith(name_without_ext_lower):
-                                score = 60
-                            # Item filename ends with the search term
-                            elif item_name_without_ext.endswith(name_without_ext_lower):
-                                score = 50
-                            # Search term is contained within the item filename
-                            elif name_without_ext_lower in item_name_without_ext:
-                                score = 40
-                            # Words in search term appear in filename (for multi-word searches)
-                            elif any(word in item_name_without_ext for word in name_without_ext_lower.split()):
-                                score = 30
-                                
-                            # If we have any score, it's a match
-                            if score > 0:
-                                mod_time = os.path.getmtime(item_path)
-                                all_matches.append(FileMatch(item, item_path, score, mod_time))
-                        
-                        # If it's a directory, recurse into it if we haven't reached max depth
-                        elif os.path.isdir(item_path) and depth < max_depth:
-                            search_directory(item_path, depth + 1, max_depth)
-                except (PermissionError, FileNotFoundError):
-                    # Skip directories we can't access
-                    pass
-            
-            # Perform the recursive search
-            search_directory(search_dir)
-        
-        # Sort matches by score and recency
-        all_matches.sort()
-        
-        # If we found matches, open the best one
-        if all_matches:
-            best_match = all_matches[0]
-            talk(f"Opening {best_match.filename}")
-            os.startfile(best_match.full_path)
-            return True
-        else:
-            # If no location was specified, be generic in the error message
-            if not location_specified:
-                talk(f"I couldn't find any file matching '{name_without_ext}' in your common folders.")
-            else:
-                talk(f"I couldn't find any file matching '{name_without_ext}' in {os.path.basename(search_directories[0])}.")
-            return False
-    except Exception as e:
-        talk(f"Error opening file: {str(e)}")
+    if not is_safe_path(file_path):
+        talk("Sorry, I can only open files from your Desktop or Documents folders. Please specify a valid file.")
         return False
+    talk(f"Opening {file_path} now.")
+    os.startfile(file_path)
+    return True
 
 def is_likely_website(text):
     """Determine if the text is likely a website name rather than a file."""
@@ -326,6 +234,31 @@ def is_likely_website(text):
         return True
         
     return False
+
+def capture_camera_image():
+    cap = cv2.VideoCapture(0)
+    ret, frame = cap.read()
+    cap.release()
+    if ret:
+        # Convert frame to PIL Image
+        image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        # Convert PIL Image to bytes
+        img_byte_arr = io.BytesIO()
+        image.save(img_byte_arr, format='PNG')
+        img_byte_arr = img_byte_arr.getvalue()
+        return img_byte_arr
+    return None
+
+def describe_camera_image():
+    img_bytes = capture_camera_image()
+    if img_bytes:
+        try:
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            response = model.generate_content(["Describe what you see in this image:", img_bytes])
+            return response.text
+        except Exception as e:
+            return f"Error describing image: {e}"
+    return "Failed to capture image from camera."
 
 def execute_command(command):
     """Process and execute user commands."""
@@ -424,6 +357,49 @@ def execute_command(command):
         response = get_ai_response(query)
         talk(response)
         print(response)
+    elif command.startswith("what can you do"):
+        features = [
+            "I can tell you the time and date.",
+            "I can fetch the weather for any city.",
+            "I can read the latest news headlines.",
+            "I can search and summarize Wikipedia topics.",
+            "I can play songs and videos on YouTube.",
+            "I can perform Google searches and return top results.",
+            "I can open websites and files on your computer.",
+            "I can tell jokes.",
+            "I can answer complex questions using Gemini AI."
+        ]
+        talk("Here are some things I can do:")
+        for feature in features:
+            talk(feature)
+        return True
+    elif command.startswith("send email"):
+        try:
+            parts = command.split(" ")
+            to_idx = parts.index("to") + 1
+            subject_idx = parts.index("subject") + 1
+            body_idx = parts.index("body") + 1
+            to_address = parts[to_idx]
+            subject = " ".join(parts[subject_idx:body_idx-1])
+            body = " ".join(parts[body_idx:])
+            # For demo: get sender email/password from environment or prompt
+            from_address = os.getenv("EMAIL_ADDRESS")
+            from_password = os.getenv("EMAIL_PASSWORD")
+            if not from_address or not from_password:
+                talk("Email credentials are not set. Please set EMAIL_ADDRESS and EMAIL_PASSWORD in your environment.")
+                return False
+            send_email(to_address, subject, body, from_address, from_password)
+            return True
+        except Exception as e:
+            talk(f"Failed to parse email command: {e}")
+            return False
+    elif command.startswith("describe camera"):
+        description = describe_camera_image()
+        talk(description)
+        return True
+    elif command.startswith("start live camera description"):
+        live_camera_description()
+        return True
     else:
         # For complex or unrecognized commands, use AI
         response = get_ai_response(command)
@@ -432,13 +408,92 @@ def execute_command(command):
     return True
 
 def run_zara():
-    """Main loop to run the assistant."""
-    talk("Hello, I am Zara, your virtual assistant. Now with enhanced AI capabilities. How can I help you today?")
-    print("Hello, I am Zara, your virtual assistant. Now with enhanced AI capabilities. How can I help you today?")
+    """Run the Zara assistant in a production-ready loop."""
+    talk("Hello! I am Zara, your virtual assistant. How can I help you today?")
     while True:
-        command = take_command()
-        if not execute_command(command):
+        try:
+            command = take_command()
+            if command:
+                execute_command(command)
+        except Exception as e:
+            print(f"Error in run_zara: {e}")
+            talk("I encountered an error. Please try again.")
+
+def send_email(to_address, subject, body, from_address, from_password, smtp_server='smtp.gmail.com', smtp_port=587):
+    try:
+        if not body:
+            # Use Gemini AI to generate email body if empty
+            prompt = f"Write a professional email with subject: {subject} to {to_address}."
+            body = get_ai_response(prompt)
+        msg = EmailMessage()
+        msg['Subject'] = subject
+        msg['From'] = from_address
+        msg['To'] = to_address
+        msg.set_content(body)
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(from_address, from_password)
+            server.send_message(msg)
+        talk("Email sent successfully.")
+        return True
+    except Exception as e:
+        talk(f"Failed to send email: {e}")
+        return False
+
+# Download MobileNet-SSD model files if not present
+def download_mobilenet_ssd():
+    proto_url = 'https://github.com/chuanqi305/MobileNet-SSD/raw/master/MobileNetSSD_deploy.prototxt'
+    model_url = 'https://github.com/chuanqi305/MobileNet-SSD/raw/master/MobileNetSSD_deploy.caffemodel'
+    proto_file = 'MobileNetSSD_deploy.prototxt'
+    model_file = 'MobileNetSSD_deploy.caffemodel'
+    if not os.path.exists(proto_file):
+        urllib.request.urlretrieve(proto_url, proto_file)
+    if not os.path.exists(model_file):
+        urllib.request.urlretrieve(model_url, model_file)
+    return proto_file, model_file
+
+# Object classes for MobileNet-SSD
+CLASSES = ["background", "aeroplane", "bicycle", "bird", "boat",
+           "bottle", "bus", "car", "cat", "chair", "cow", "diningtable",
+           "dog", "horse", "motorbike", "person", "pottedplant",
+           "sheep", "sofa", "train", "tvmonitor"]
+
+def detect_objects_mobilenet(frame, net):
+    (h, w) = frame.shape[:2]
+    blob = cv2.dnn.blobFromImage(cv2.resize(frame, (300, 300)), 0.007843, (300, 300), 127.5)
+    net.setInput(blob)
+    detections = net.forward()
+    detected = set()
+    for i in range(detections.shape[2]):
+        confidence = detections[0, 0, i, 2]
+        if confidence > 0.5:
+            idx = int(detections[0, 0, i, 1])
+            if idx < len(CLASSES):
+                detected.add(CLASSES[idx])
+    return detected
+
+def live_camera_description():
+    proto_file, model_file = download_mobilenet_ssd()
+    net = cv2.dnn.readNetFromCaffe(proto_file, model_file)
+    cap = cv2.VideoCapture(0)
+    last_objects = set()
+    while True:
+        ret, frame = cap.read()
+        if not ret:
             break
+        objects = detect_objects_mobilenet(frame, net)
+        if objects != last_objects:
+            if objects:
+                desc = ", ".join(objects)
+                talk(f"Zara sees: {desc}")
+            else:
+                talk("Zara doesn't see anything recognizable.")
+            last_objects = objects
+        cv2.imshow('Zara Camera Feed', frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+    cap.release()
+    cv2.destroyAllWindows()
 
 if __name__ == "__main__":
     run_zara()

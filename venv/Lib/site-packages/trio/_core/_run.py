@@ -7,7 +7,6 @@ import itertools
 import random
 import select
 import sys
-import threading
 import warnings
 from collections import deque
 from contextlib import AbstractAsyncContextManager, contextmanager, suppress
@@ -39,8 +38,9 @@ from ._concat_tb import concat_tb
 from ._entry_queue import EntryQueue, TrioToken
 from ._exceptions import Cancelled, RunFinishedError, TrioInternalError
 from ._instrumentation import Instruments
-from ._ki import LOCALS_KEY_KI_PROTECTION_ENABLED, KIManager, enable_ki_protection
+from ._ki import KIManager, enable_ki_protection
 from ._parking_lot import GLOBAL_PARKING_LOT_BREAKER
+from ._run_context import GLOBAL_RUN_CONTEXT as GLOBAL_RUN_CONTEXT
 from ._thread_cache import start_thread_soon
 from ._traps import (
     Abort,
@@ -61,7 +61,6 @@ if TYPE_CHECKING:
     from collections.abc import (
         Awaitable,
         Callable,
-        Coroutine,
         Generator,
         Iterator,
         Sequence,
@@ -76,20 +75,20 @@ if TYPE_CHECKING:
     PosArgT = TypeVarTuple("PosArgT")
     StatusT = TypeVar("StatusT", default=None)
     StatusT_contra = TypeVar("StatusT_contra", contravariant=True, default=None)
+    BaseExcT = TypeVar("BaseExcT", bound=BaseException)
 else:
     from typing import TypeVar
 
     StatusT = TypeVar("StatusT")
     StatusT_contra = TypeVar("StatusT_contra", contravariant=True)
 
-FnT = TypeVar("FnT", bound="Callable[..., Any]")
 RetT = TypeVar("RetT")
 
 
 DEADLINE_HEAP_MIN_PRUNE_THRESHOLD: Final = 1000
 
 # Passed as a sentinel
-_NO_SEND: Final[Outcome[Any]] = cast("Outcome[Any]", object())
+_NO_SEND: Final[Outcome[object]] = cast("Outcome[object]", object())
 
 # Used to track if an exceptiongroup can be collapsed
 NONSTRICT_EXCEPTIONGROUP_NOTE = 'This is a "loose" ExceptionGroup, and may be collapsed by Trio if it only contains one exception - typically after `Cancelled` has been stripped from it. Note this has consequences for exception handling, and strict_exception_groups=True is recommended.'
@@ -102,7 +101,7 @@ class _NoStatus(metaclass=NoPublicConstructor):
 
 # Decorator to mark methods public. This does nothing by itself, but
 # trio/_tools/gen_exports.py looks for it.
-def _public(fn: FnT) -> FnT:
+def _public(fn: RetT) -> RetT:
     return fn
 
 
@@ -116,12 +115,28 @@ _ALLOW_DETERMINISTIC_SCHEDULING: Final = False
 _r = random.Random()
 
 
-def _hypothesis_plugin_setup() -> None:
+# no cover because we don't check the hypothesis plugin works with hypothesis
+def _hypothesis_plugin_setup() -> None:  # pragma: no cover
     from hypothesis import register_random
 
     global _ALLOW_DETERMINISTIC_SCHEDULING
     _ALLOW_DETERMINISTIC_SCHEDULING = True  # type: ignore
     register_random(_r)
+
+    # monkeypatch repr_callable to make repr's way better
+    # requires importing hypothesis (in the test file or in conftest.py)
+    try:
+        from hypothesis.internal.reflection import get_pretty_function_description
+
+        import trio.testing._raises_group
+
+        def repr_callable(fun: Callable[[BaseExcT], bool]) -> str:
+            # add quotes around the signature
+            return repr(get_pretty_function_description(fun))
+
+        trio.testing._raises_group.repr_callable = repr_callable
+    except ImportError:
+        pass
 
 
 def _count_context_run_tb_frames() -> int:
@@ -348,7 +363,7 @@ class CancelStatus:
     # become effectively cancelled when they do, unless scope.shield
     # is True.  May be None (for the outermost CancelStatus in a call
     # to trio.run(), briefly during TaskStatus.started(), or during
-    # recovery from mis-nesting of cancel scopes).
+    # recovery from misnesting of cancel scopes).
     _parent: CancelStatus | None = attrs.field(default=None, repr=False, alias="parent")
 
     # All of the CancelStatuses that have this CancelStatus as their parent.
@@ -362,7 +377,7 @@ class CancelStatus:
 
     # Set to True on still-active cancel statuses that are children
     # of a cancel status that's been closed. This is used to permit
-    # recovery from mis-nested cancel scopes (well, at least enough
+    # recovery from misnested cancel scopes (well, at least enough
     # recovery to show a useful traceback).
     abandoned_by_misnesting: bool = attrs.field(default=False, init=False, repr=False)
 
@@ -378,7 +393,7 @@ class CancelStatus:
         return self._parent
 
     @parent.setter
-    def parent(self, parent: CancelStatus) -> None:
+    def parent(self, parent: CancelStatus | None) -> None:
         if self._parent is not None:
             self._parent._children.remove(self)
         self._parent = parent
@@ -544,9 +559,13 @@ class CancelScope:
     cancelled_caught: bool = attrs.field(default=False, init=False)
 
     # Constructor arguments:
-    _relative_deadline: float = attrs.field(default=inf, kw_only=True)
-    _deadline: float = attrs.field(default=inf, kw_only=True)
-    _shield: bool = attrs.field(default=False, kw_only=True)
+    _relative_deadline: float = attrs.field(
+        default=inf,
+        kw_only=True,
+        alias="relative_deadline",
+    )
+    _deadline: float = attrs.field(default=inf, kw_only=True, alias="deadline")
+    _shield: bool = attrs.field(default=False, kw_only=True, alias="shield")
 
     def __attrs_post_init__(self) -> None:
         if isnan(self._deadline):
@@ -591,7 +610,7 @@ class CancelScope:
             return new_exc
         scope_task = current_task()
         if scope_task._cancel_status is not self._cancel_status:
-            # Cancel scope mis-nesting: this cancel scope isn't the most
+            # Cancel scope misnesting: this cancel scope isn't the most
             # recently opened by this task (that's still open). That is,
             # our assumptions about context managers forming a stack
             # have been violated. Try and make the best of it.
@@ -783,6 +802,18 @@ class CancelScope:
 
     @property
     def relative_deadline(self) -> float:
+        """Read-write, :class:`float`. The number of seconds remaining until this
+        scope's deadline, relative to the current time.
+
+        Defaults to :data:`math.inf` ("no deadline"). Must be non-negative.
+
+        When modified
+        Before entering: sets the deadline relative to when the scope enters.
+        After entering: sets a new deadline relative to the current time.
+
+        Raises:
+          RuntimeError: if trying to read or modify an unentered scope with an absolute deadline, i.e. when :attr:`is_relative` is ``False``.
+        """
         if self._has_been_entered:
             return self._deadline - current_time()
         elif self._deadline != inf:
@@ -942,7 +973,7 @@ class _TaskStatus(TaskStatus[StatusT]):
     def started(self, value: StatusT | None = None) -> None:
         if self._value is not _NoStatus:
             raise RuntimeError("called 'started' twice on the same task status")
-        self._value = cast(StatusT, value)  # If None, StatusT == None
+        self._value = cast("StatusT", value)  # If None, StatusT == None
 
         # If the old nursery is cancelled, then quietly quit now; the child
         # will eventually exit on its own, and we don't want to risk moving
@@ -1129,7 +1160,7 @@ class Nursery(metaclass=NoPublicConstructor):
         parent_task: Task,
         cancel_scope: CancelScope,
         strict_exception_groups: bool,
-    ):
+    ) -> None:
         self._parent_task = parent_task
         self._strict_exception_groups = strict_exception_groups
         parent_task._child_nurseries.append(self)
@@ -1172,7 +1203,11 @@ class Nursery(metaclass=NoPublicConstructor):
                 self._parent_waiting_in_aexit = False
                 GLOBAL_RUN_CONTEXT.runner.reschedule(self._parent_task)
 
-    def _child_finished(self, task: Task, outcome: Outcome[Any]) -> None:
+    def _child_finished(
+        self,
+        task: Task,
+        outcome: Outcome[object],
+    ) -> None:
         self._children.remove(task)
         if isinstance(outcome, Error):
             self._add_exc(outcome.error)
@@ -1278,7 +1313,8 @@ class Nursery(metaclass=NoPublicConstructor):
         """
         GLOBAL_RUN_CONTEXT.runner.spawn_impl(async_fn, args, self, name)
 
-    async def start(
+    # Typing changes blocked by https://github.com/python/mypy/pull/17512
+    async def start(  # type: ignore[explicit-any]
         self,
         async_fn: Callable[..., Awaitable[object]],
         *args: object,
@@ -1334,7 +1370,10 @@ class Nursery(metaclass=NoPublicConstructor):
                 # set strict_exception_groups = True to make sure we always unwrap
                 # *this* nursery's exceptiongroup
                 async with open_nursery(strict_exception_groups=True) as old_nursery:
-                    task_status: _TaskStatus[Any] = _TaskStatus(old_nursery, self)
+                    task_status: _TaskStatus[object | None] = _TaskStatus(
+                        old_nursery,
+                        self,
+                    )
                     thunk = functools.partial(async_fn, task_status=task_status)
                     task = GLOBAL_RUN_CONTEXT.runner.spawn_impl(
                         thunk,
@@ -1375,13 +1414,14 @@ class Nursery(metaclass=NoPublicConstructor):
 
 @final
 @attrs.define(eq=False, repr=False)
-class Task(metaclass=NoPublicConstructor):
+class Task(metaclass=NoPublicConstructor):  # type: ignore[explicit-any]
     _parent_nursery: Nursery | None
-    coro: Coroutine[Any, Outcome[object], Any]
+    coro: types.CoroutineType[Any, Outcome[object], Any]  # type: ignore[explicit-any]
     _runner: Runner
     name: str
     context: contextvars.Context
     _counter: int = attrs.field(init=False, factory=itertools.count().__next__)
+    _ki_protected: bool
 
     # Invariant:
     # - for unscheduled tasks, _next_send_fn and _next_send are both None
@@ -1394,10 +1434,10 @@ class Task(metaclass=NoPublicConstructor):
     #   tracebacks with extraneous frames.
     # - for scheduled tasks, custom_sleep_data is None
     # Tasks start out unscheduled.
-    _next_send_fn: Callable[[Any], object] | None = None
-    _next_send: Outcome[Any] | None | BaseException = None
+    _next_send_fn: Callable[[Any], object] | None = None  # type: ignore[explicit-any]
+    _next_send: Outcome[Any] | BaseException | None = None  # type: ignore[explicit-any]
     _abort_func: Callable[[_core.RaiseCancelT], Abort] | None = None
-    custom_sleep_data: Any = None
+    custom_sleep_data: Any = None  # type: ignore[explicit-any]
 
     # For introspection and nursery.start()
     _child_nurseries: list[Nursery] = attrs.Factory(list)
@@ -1465,7 +1505,7 @@ class Task(metaclass=NoPublicConstructor):
 
         """
         # Ignore static typing as we're doing lots of dynamic introspection
-        coro: Any = self.coro
+        coro: Any = self.coro  # type: ignore[explicit-any]
         while coro is not None:
             if hasattr(coro, "cr_frame"):
                 # A real coroutine
@@ -1557,14 +1597,6 @@ class Task(metaclass=NoPublicConstructor):
 ################################################################
 
 
-class RunContext(threading.local):
-    runner: Runner
-    task: Task
-
-
-GLOBAL_RUN_CONTEXT: Final = RunContext()
-
-
 @attrs.frozen
 class RunStatistics:
     """An object containing run-loop-level debugging information.
@@ -1618,13 +1650,13 @@ class RunStatistics:
 
 
 @attrs.define(eq=False)
-class GuestState:
+class GuestState:  # type: ignore[explicit-any]
     runner: Runner
     run_sync_soon_threadsafe: Callable[[Callable[[], object]], object]
     run_sync_soon_not_threadsafe: Callable[[Callable[[], object]], object]
-    done_callback: Callable[[Outcome[Any]], object]
+    done_callback: Callable[[Outcome[Any]], object]  # type: ignore[explicit-any]
     unrolled_run_gen: Generator[float, EventResult, None]
-    unrolled_run_next_send: Outcome[Any] = attrs.Factory(lambda: Value(None))
+    unrolled_run_next_send: Outcome[Any] = attrs.Factory(lambda: Value(None))  # type: ignore[explicit-any]
 
     def guest_tick(self) -> None:
         prev_library, sniffio_library.name = sniffio_library.name, "trio"
@@ -1669,7 +1701,7 @@ class GuestState:
 
 
 @attrs.define(eq=False)
-class Runner:
+class Runner:  # type: ignore[explicit-any]
     clock: Clock
     instruments: Instruments
     io_manager: TheIOManager
@@ -1677,7 +1709,7 @@ class Runner:
     strict_exception_groups: bool
 
     # Run-local values, see _local.py
-    _locals: dict[_core.RunVar[Any], Any] = attrs.Factory(dict)
+    _locals: dict[_core.RunVar[Any], object] = attrs.Factory(dict)  # type: ignore[explicit-any]
 
     runq: deque[Task] = attrs.Factory(deque)
     tasks: set[Task] = attrs.Factory(set)
@@ -1688,7 +1720,7 @@ class Runner:
     system_nursery: Nursery | None = None
     system_context: contextvars.Context = attrs.field(kw_only=True)
     main_task: Task | None = None
-    main_task_outcome: Outcome[Any] | None = None
+    main_task_outcome: Outcome[object] | None = None
 
     entry_queue: EntryQueue = attrs.Factory(EntryQueue)
     trio_token: TrioToken | None = None
@@ -1780,12 +1812,8 @@ class Runner:
     # Core task handling primitives
     ################
 
-    @_public  # Type-ignore due to use of Any here.
-    def reschedule(  # type: ignore[misc]
-        self,
-        task: Task,
-        next_send: Outcome[Any] = _NO_SEND,
-    ) -> None:
+    @_public
+    def reschedule(self, task: Task, next_send: Outcome[object] = _NO_SEND) -> None:
         """Reschedule the given task with the given
         :class:`outcome.Outcome`.
 
@@ -1870,8 +1898,7 @@ class Runner:
                 return await orig_coro
 
             coro = python_wrapper(coro)
-        assert coro.cr_frame is not None, "Coroutine frame should exist"
-        coro.cr_frame.f_locals.setdefault(LOCALS_KEY_KI_PROTECTION_ENABLED, system_task)
+        assert coro.cr_frame is not None, "Coroutine frame should exist"  # type: ignore[attr-defined]
 
         ######
         # Set up the Task object
@@ -1882,6 +1909,7 @@ class Runner:
             runner=self,
             name=name,
             context=context,
+            ki_protected=system_task,
         )
 
         self.tasks.add(task)
@@ -1896,7 +1924,7 @@ class Runner:
         self.reschedule(task, None)  # type: ignore[arg-type]
         return task
 
-    def task_exited(self, task: Task, outcome: Outcome[Any]) -> None:
+    def task_exited(self, task: Task, outcome: Outcome[object]) -> None:
         # break parking lots associated with the exiting task
         if task in GLOBAL_PARKING_LOT_BREAKER:
             for lot in GLOBAL_PARKING_LOT_BREAKER[task]:
@@ -2108,7 +2136,7 @@ class Runner:
 
     # sortedcontainers doesn't have types, and is reportedly very hard to type:
     # https://github.com/grantjenks/python-sortedcontainers/issues/68
-    waiting_for_idle: Any = attrs.Factory(SortedDict)
+    waiting_for_idle: Any = attrs.Factory(SortedDict)  # type: ignore[explicit-any]
 
     @_public
     async def wait_all_tasks_blocked(self, cushion: float = 0.0) -> None:
@@ -2257,7 +2285,7 @@ def setup_runner(
     # It wouldn't be *hard* to support nested calls to run(), but I can't
     # think of a single good reason for it, so let's be conservative for
     # now:
-    if hasattr(GLOBAL_RUN_CONTEXT, "runner"):
+    if in_trio_run():
         raise RuntimeError("Attempted to call run() from inside a run()")
 
     if clock is None:
@@ -2402,14 +2430,14 @@ def run(
     # Inlined copy of runner.main_task_outcome.unwrap() to avoid
     # cluttering every single Trio traceback with an extra frame.
     if isinstance(runner.main_task_outcome, Value):
-        return cast(RetT, runner.main_task_outcome.value)
+        return cast("RetT", runner.main_task_outcome.value)
     elif isinstance(runner.main_task_outcome, Error):
         raise runner.main_task_outcome.error
     else:  # pragma: no cover
         raise AssertionError(runner.main_task_outcome)
 
 
-def start_guest_run(
+def start_guest_run(  # type: ignore[explicit-any]
     async_fn: Callable[..., Awaitable[RetT]],
     *args: object,
     run_sync_soon_threadsafe: Callable[[Callable[[], object]], object],
@@ -2525,7 +2553,7 @@ def start_guest_run(
     # this time, so it shouldn't be possible to get an exception here,
     # except for a TrioInternalError.
     next_send = cast(
-        EventResult,
+        "EventResult",
         None,
     )  # First iteration must be `None`, every iteration after that is EventResult
     for _tick in range(5):  # expected need is 2 iterations + leave some wiggle room
@@ -2573,13 +2601,13 @@ _MAX_TIMEOUT: Final = 24 * 60 * 60
 # mode", where our core event loop gets unrolled into a series of callbacks on
 # the host loop. If you're doing a regular trio.run then this gets run
 # straight through.
+@enable_ki_protection
 def unrolled_run(
     runner: Runner,
     async_fn: Callable[[Unpack[PosArgT]], Awaitable[object]],
     args: tuple[Unpack[PosArgT]],
     host_uses_signal_set_wakeup_fd: bool = False,
 ) -> Generator[float, EventResult, None]:
-    sys._getframe().f_locals[LOCALS_KEY_KI_PROTECTION_ENABLED] = True
     __tracebackhide__ = True
 
     try:
@@ -2713,7 +2741,7 @@ def unrolled_run(
                 next_send_fn = task._next_send_fn
                 next_send = task._next_send
                 task._next_send_fn = task._next_send = None
-                final_outcome: Outcome[Any] | None = None
+                final_outcome: Outcome[object] | None = None
                 try:
                     # We used to unwrap the Outcome object here and send/throw
                     # its contents in directly, but it turns out that .throw()
@@ -2805,8 +2833,9 @@ def unrolled_run(
     except BaseException as exc:
         raise TrioInternalError("internal error in Trio - please file a bug!") from exc
     finally:
-        GLOBAL_RUN_CONTEXT.__dict__.clear()
         runner.close()
+        GLOBAL_RUN_CONTEXT.__dict__.clear()
+
         # Have to do this after runner.close() has disabled KI protection,
         # because otherwise there's a race where ki_pending could get set
         # after we check it.
@@ -2822,15 +2851,15 @@ def unrolled_run(
 ################################################################
 
 
-class _TaskStatusIgnored(TaskStatus[Any]):
+class _TaskStatusIgnored(TaskStatus[object]):
     def __repr__(self) -> str:
         return "TASK_STATUS_IGNORED"
 
-    def started(self, value: Any = None) -> None:
+    def started(self, value: object = None) -> None:
         pass
 
 
-TASK_STATUS_IGNORED: Final[TaskStatus[Any]] = _TaskStatusIgnored()
+TASK_STATUS_IGNORED: Final[TaskStatus[object]] = _TaskStatusIgnored()
 
 
 def current_task() -> Task:
@@ -2925,6 +2954,24 @@ async def checkpoint_if_cancelled() -> None:
     task._cancel_points += 1
 
 
+def in_trio_run() -> bool:
+    """Check whether we are in a Trio run.
+    This returns `True` if and only if :func:`~trio.current_time` will succeed.
+
+    See also the discussion of differing ways of :ref:`detecting Trio <trio_contexts>`.
+    """
+    return hasattr(GLOBAL_RUN_CONTEXT, "runner")
+
+
+def in_trio_task() -> bool:
+    """Check whether we are in a Trio task.
+    This returns `True` if and only if :func:`~trio.lowlevel.current_task` will succeed.
+
+    See also the discussion of differing ways of :ref:`detecting Trio <trio_contexts>`.
+    """
+    return hasattr(GLOBAL_RUN_CONTEXT, "task")
+
+
 if sys.platform == "win32":
     from ._generated_io_windows import *
     from ._io_windows import (
@@ -2947,6 +2994,13 @@ elif TYPE_CHECKING or hasattr(select, "kqueue"):
         _KqueueStatistics as IOStatistics,
     )
 else:  # pragma: no cover
+    _patchers = sorted({"eventlet", "gevent"}.intersection(sys.modules))
+    if _patchers:
+        raise NotImplementedError(
+            "unsupported platform or primitives trio depends on are monkey-patched out by "
+            + ", ".join(_patchers),
+        )
+
     raise NotImplementedError("unsupported platform")
 
 from ._generated_instrumentation import *

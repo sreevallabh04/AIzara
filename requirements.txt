@@ -11,3 +11,10 @@ webdriver-manager
 pyaudio
 groq
 python-dotenv
+google-generativeai
+# sqlite3 is part of Python stdlib, but add for clarity
+sqlite3
+# smtplib is part of Python stdlib, but add for clarity
+smtplib
+opencv-python
+Pillow
