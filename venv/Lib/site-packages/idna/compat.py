@@ -1,15 +1,12 @@
-from typing import Any, Union
+from .core import *
+from .codec import *
 
-from .core import decode, encode
-
-
-def ToASCII(label: str) -> bytes:
+def ToASCII(label):
     return encode(label)
 
-
-def ToUnicode(label: Union[bytes, bytearray]) -> str:
+def ToUnicode(label):
     return decode(label)
 
-
-def nameprep(s: Any) -> None:
+def nameprep(s):
     raise NotImplementedError("IDNA 2008 does not utilise nameprep protocol")
+

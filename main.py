@@ -30,6 +30,10 @@ import pytesseract
 from googletrans import Translator
 import sounddevice as sd
 import scipy.io.wavfile as wav
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import subprocess
 
 # Load environment variables
 load_dotenv()
@@ -199,12 +203,22 @@ def is_safe_path(file_path):
     return any(abs_path.startswith(os.path.abspath(safe)) for safe in safe_dirs)
 
 def open_file(file_path):
-    if not is_safe_path(file_path):
-        talk("Sorry, I can only open files from your Desktop or Documents folders. Please specify a valid file.")
-        return False
-    talk(f"Opening {file_path} now.")
-    os.startfile(file_path)
-    return True
+    # If file_path is a full path, open it directly
+    if os.path.exists(file_path):
+        talk(f"Opening {file_path} now.")
+        os.startfile(file_path)
+        return True
+    # Otherwise, search the entire laptop for the file
+    talk(f"Searching for {file_path}...")
+    for root, dirs, files in os.walk(os.path.expanduser("~")):
+        for file in files:
+            if file.lower() == file_path.lower():
+                full_path = os.path.join(root, file)
+                talk(f"Found {file} at {full_path}. Opening now.")
+                os.startfile(full_path)
+                return True
+    talk(f"Sorry, I couldn't find a file named {file_path}.")
+    return False
 
 def is_likely_website(text):
     """Determine if the text is likely a website name rather than a file."""
@@ -443,6 +457,23 @@ def execute_command(command):
     elif command.startswith("waste sorting assistant"):
         waste_sorting_assistant()
         return True
+    elif command.startswith("open whatsapp"):
+        open_app("WhatsApp")
+        return True
+    elif command.startswith("send whatsapp message to"):
+        try:
+            open_app("WhatsApp")
+            time.sleep(5)  # Give WhatsApp time to open
+            parts = command.split("message")
+            contact = parts[0].replace("send whatsapp message to", "").strip()
+            message = parts[1].strip()
+            # Optionally, automate typing using pyautogui here
+            talk("Please select the contact and I will type the message.")
+            # You can add pyautogui.typewrite(message) for full automation
+            return True
+        except Exception as e:
+            talk(f"Failed to parse WhatsApp command: {e}")
+            return False
     else:
         # For complex or unrecognized commands, use AI
         response = get_ai_response(command)
@@ -590,6 +621,24 @@ def recognize_gesture():
 # Waste sorting assistant stub
 def waste_sorting_assistant():
     talk("Waste sorting is not yet implemented, but this is where it would go. Show an object to the camera and Zara will classify it as recyclable, compost, or trash in the future.")
+
+def open_app(app_name):
+    if app_name.lower() == "whatsapp":
+        try:
+            webbrowser.open('https://web.whatsapp.com')
+            talk("Opening WhatsApp web now.")
+            return True
+        except Exception as e:
+            talk(f"Failed to open WhatsApp web: {e}")
+            return False
+    else:
+        try:
+            subprocess.Popen(['powershell', 'Start-Process', app_name])
+            talk(f"Opening {app_name} now.")
+            return True
+        except Exception as e:
+            talk(f"Failed to open {app_name}: {e}")
+            return False
 
 if __name__ == "__main__":
     run_zara()
