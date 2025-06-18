@@ -1,99 +1,196 @@
-# Zara - Futuristic AI-Powered Virtual Assistant
+# Zara Assistant 🎙️
 
-Zara is a next-generation, multimodal AI assistant that combines voice, vision, and language to help you in everyday life. Zara can see, hear, speak, read, translate, summarize, and even help with accessibility and sustainability—all through natural voice commands.
+An offline-first voice assistant powered by local LLMs, designed for privacy and performance. Think JARVIS, but running entirely on your machine!
 
-## 🚀 Features
+## ✨ Features
 
-### 🤖 Conversational AI
-- Natural, context-aware conversation using Gemini AI (with memory of previous interactions)
-- Moderated, safe, and friendly responses as "Zara"
+- 🗣️ **Natural Voice Interface**
+  - Speech recognition using Whisper (offline)
+  - High-quality Windows TTS with configurable voices
+  - Voice Activity Detection for better interaction
 
-### 🗣️ Voice Commands
-- Activate Zara by saying "Zara" followed by your command
-- Example: "Zara, what can you do?"
+- 🧠 **Local Intelligence**
+  - Powered by Ollama + LLaMA 2
+  - Runs completely offline
+  - Contextual memory and learning
+  - Witty personality with natural responses
 
-### 👁️ Live Camera Narration
-- **Command:** `start live camera description`
-- Shows a live camera feed and describes what Zara sees in real time (object detection)
+- 👁️ **Computer Vision**
+  - Object detection using MobileNetSSD
+  - Text recognition in images
+  - Face detection
+  - Screenshot analysis
 
-### 📝 OCR & Translation
-- **Command:** `read and translate text from camera to <language>`
-- Reads text from the camera and translates it to any language (e.g., French, Hindi, Spanish)
+- 🛠️ **System Integration**
+  - Email and WhatsApp messaging
+  - File operations
+  - System commands
+  - Web search capabilities
 
-### 📧 Email by Voice
-- **Command:** `send email to <address> subject <subject> body <body>`
-- If the body is omitted, Zara will write the email for you using AI
+- 💾 **Persistent Memory**
+  - Conversation history
+  - User preferences
+  - Task management
+  - Automatic backups
 
-### 📂 Smart File Opening
-- **Command:** `open file <filename>`
-- Securely opens files from Desktop or Documents with fuzzy, case-insensitive matching
+## 🚀 Quick Start
 
-### 📅 Meeting Summarizer
-- **Command:** `summarize meeting`
-- Records, transcribes, and summarizes meetings or lectures
+### Prerequisites
 
-### 🔊 Environmental Sound Detection
-- **Command:** `detect environmental sound`
-- Listens for and identifies environmental sounds (stub for advanced sound classification)
+1. **Python 3.8+** - [Download Python](https://www.python.org/downloads/)
+2. **Ollama** - [Download Ollama](https://ollama.ai/download)
+3. **Git** (optional) - [Download Git](https://git-scm.com/downloads)
 
-### ✋ Gesture Recognition (Stub)
-- **Command:** `recognize gesture`
-- Placeholder for future gesture recognition using the camera
+### Installation
 
-### ♻️ Waste Sorting Assistant (Stub)
-- **Command:** `waste sorting assistant`
-- Placeholder for future waste classification (recyclable, compost, trash)
-
-### 🌐 Web & Knowledge
-- Wikipedia summaries, Google search, news, weather, jokes, and more
-
-### 🧑‍🦯 Accessibility
-- Visual narration, text reading, and translation for the visually impaired
-
-### 🛡️ Safety & Moderation
-- Content moderation for safe, appropriate responses
-- File and command validation for security
-
-### 🗃️ Persistent Memory
-- Conversation history and user data stored in a local SQLite database
-
-## 🛠️ Installation
-
-1. Clone this repository:
+1. Install Zara Assistant:
+   ```bash
+   pip install zara-assistant
    ```
-   git clone <repository-url>
-   cd AIzara
+
+   Or install from source:
+   ```bash
+   git clone https://github.com/yourusername/zara-assistant
+   cd zara-assistant
+   pip install -e .
    ```
-2. Install dependencies:
+
+2. Download the LLaMA model:
+   ```bash
+   ollama pull llama2
    ```
+
+3. Start Ollama service:
+   ```bash
+   ollama serve
+   ```
+
+### Running Zara
+
+1. Start the assistant:
+   ```bash
+   zara-assistant
+   ```
+   
+   Or if installed from source:
+   ```bash
+   python -m zara
+   ```
+
+2. On first run, Zara will:
+   - Check for Ollama service
+   - Verify LLaMA model
+   - Create necessary directories
+   - Set up the database
+   - Guide you through voice setup
+
+## 🎯 Usage
+
+### Voice Commands
+
+Just speak naturally! Some examples:
+- "What's the weather like?"
+- "Send an email to John"
+- "Take a screenshot"
+- "What objects do you see in this image?"
+- "Remember that I prefer dark mode"
+
+### Configuration
+
+Voice settings can be adjusted in `config/voice_config.json`:
+```json
+{
+  "speech_rate": 175,
+  "volume": 1.0,
+  "vad_mode": 3,
+  "input_timeout": 5.0
+}
+```
+
+## 🛠️ Development
+
+### Setting Up Dev Environment
+
+1. Create virtual environment:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # or `venv\Scripts\activate` on Windows
+   ```
+
+2. Install dev dependencies:
+   ```bash
    pip install -r requirements.txt
+   pip install pytest pytest-asyncio pytest-cov
    ```
-3. Set up your environment variables in a `.env` file:
-   ```
-   GEMINI_API_KEY=your_gemini_api_key_here
-   EMAIL_ADDRESS=your_email_address_here
-   EMAIL_PASSWORD=your_email_password_here
-   ```
-4. (Optional) For OCR, install Tesseract OCR engine and add it to your PATH.
 
-## 🏁 Usage
+### Running Tests
 
-Run Zara with:
-```
-python main.py
+```bash
+pytest tests/ -v
 ```
 
-Then use any of the voice commands above!
+### Building Windows Executable
 
-## 🏆 Hackathon-Ready, Real-World Impact
-- Accessibility for the visually impaired
-- Productivity (meeting summarization, email, translation)
-- Environmental awareness (waste sorting, sound detection)
-- Extensible for smart home, AR, and more
+```bash
+./build.bat
+```
 
-## 📚 Extending Zara
-- Add new skills by editing `main.py` and following the command pattern
-- Integrate with APIs, IoT devices, or AR overlays for even more futuristic features
+The executable will be created in `dist/Zara Assistant/`.
 
-## 📝 License
-MIT License
+## 🔧 Troubleshooting
+
+### Common Issues
+
+1. **"Ollama service not detected"**
+   - Ensure Ollama is installed
+   - Run `ollama serve`
+   - Check if http://localhost:11434 is accessible
+
+2. **"LLaMA model not found"**
+   - Run `ollama pull llama2`
+   - Check available models with `ollama list`
+
+3. **"No audio input detected"**
+   - Check microphone permissions
+   - Verify default input device
+   - Adjust input volume
+
+4. **"Vision model files missing"**
+   - Ensure MobileNetSSD files are in the models directory
+   - Download missing files if needed
+
+### Logs
+
+Check `logs/zara.log` for detailed error messages and debugging information.
+
+## 📚 Architecture
+
+Zara is built with modularity in mind:
+
+```
+zara/
+├── agent.py      # Core LLM integration
+├── memory.py     # Database and context
+├── voice.py      # Speech I/O
+├── vision.py     # Image processing
+├── tools.py      # System operations
+└── logger.py     # Logging system
+```
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create your feature branch
+3. Add tests for new features
+4. Ensure tests pass
+5. Create a pull request
+
+## 📄 License
+
+MIT License - see LICENSE file for details.
+
+## 🙏 Acknowledgments
+
+- [Ollama](https://ollama.ai/) for local LLM support
+- [Whisper](https://github.com/openai/whisper) for offline speech recognition
+- [MobileNetSSD](https://github.com/chuanqi305/MobileNet-SSD) for vision capabilities
