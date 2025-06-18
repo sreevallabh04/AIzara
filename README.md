@@ -1,165 +1,99 @@
-# Zara - AI-Powered Virtual Assistant
+# Zara - Futuristic AI-Powered Virtual Assistant
 
-Zara is a Python-based virtual assistant similar to Amazon's Alexa, designed to perform a variety of tasks through voice commands. With the integration of Groq's advanced large language model, Zara now offers more sophisticated and natural conversational abilities.
+Zara is a next-generation, multimodal AI assistant that combines voice, vision, and language to help you in everyday life. Zara can see, hear, speak, read, translate, summarize, and even help with accessibility and sustainability—all through natural voice commands.
 
-## Features
+## 🚀 Features
 
-- **Voice Recognition**: Listen and respond to voice commands
-- **AI-Powered Responses**: Leverages Groq AI for complex queries and natural conversation
-- **Weather Information**: Get current weather for any city
-- **News Updates**: Read the latest news headlines
-- **Wikipedia Access**: Fetch information from Wikipedia
-- **YouTube Integration**: Play songs and videos on YouTube
-- **Time and Date**: Tell the current time, date, and day
-- **Web Search**: Perform Google searches and return top results
-- **Web Navigation**: Open websites in your browser
-- **File Access**: Open files on your computer using voice commands
-- **Jokes**: Tell jokes when you need a laugh
+### 🤖 Conversational AI
+- Natural, context-aware conversation using Gemini AI (with memory of previous interactions)
+- Moderated, safe, and friendly responses as "Zara"
 
-## Prerequisites
+### 🗣️ Voice Commands
+- Activate Zara by saying "Zara" followed by your command
+- Example: "Zara, what can you do?"
 
-- Python 3.7 or higher
-- A Groq API key (for AI-powered responses)
-- An internet connection for API services
+### 👁️ Live Camera Narration
+- **Command:** `start live camera description`
+- Shows a live camera feed and describes what Zara sees in real time (object detection)
 
-## Installation
+### 📝 OCR & Translation
+- **Command:** `read and translate text from camera to <language>`
+- Reads text from the camera and translates it to any language (e.g., French, Hindi, Spanish)
+
+### 📧 Email by Voice
+- **Command:** `send email to <address> subject <subject> body <body>`
+- If the body is omitted, Zara will write the email for you using AI
+
+### 📂 Smart File Opening
+- **Command:** `open file <filename>`
+- Securely opens files from Desktop or Documents with fuzzy, case-insensitive matching
+
+### 📅 Meeting Summarizer
+- **Command:** `summarize meeting`
+- Records, transcribes, and summarizes meetings or lectures
+
+### 🔊 Environmental Sound Detection
+- **Command:** `detect environmental sound`
+- Listens for and identifies environmental sounds (stub for advanced sound classification)
+
+### ✋ Gesture Recognition (Stub)
+- **Command:** `recognize gesture`
+- Placeholder for future gesture recognition using the camera
+
+### ♻️ Waste Sorting Assistant (Stub)
+- **Command:** `waste sorting assistant`
+- Placeholder for future waste classification (recyclable, compost, trash)
+
+### 🌐 Web & Knowledge
+- Wikipedia summaries, Google search, news, weather, jokes, and more
+
+### 🧑‍🦯 Accessibility
+- Visual narration, text reading, and translation for the visually impaired
+
+### 🛡️ Safety & Moderation
+- Content moderation for safe, appropriate responses
+- File and command validation for security
+
+### 🗃️ Persistent Memory
+- Conversation history and user data stored in a local SQLite database
+
+## 🛠️ Installation
 
 1. Clone this repository:
-```
-git clone <repository-url>
-cd zara-assistant
-```
+   ```
+   git clone <repository-url>
+   cd AIzara
+   ```
+2. Install dependencies:
+   ```
+   pip install -r requirements.txt
+   ```
+3. Set up your environment variables in a `.env` file:
+   ```
+   GEMINI_API_KEY=your_gemini_api_key_here
+   EMAIL_ADDRESS=your_email_address_here
+   EMAIL_PASSWORD=your_email_password_here
+   ```
+4. (Optional) For OCR, install Tesseract OCR engine and add it to your PATH.
 
-2. Install the required packages:
-```
-pip install -r requirements.txt
-```
+## 🏁 Usage
 
-3. Create a `.env` file in the project root and add your API keys:
-```
-GROQ_API_KEY=your_groq_api_key_here
-```
-
-## Usage
-
-Run the assistant with:
+Run Zara with:
 ```
 python main.py
 ```
 
-### Voice Commands
+Then use any of the voice commands above!
 
-Activate Zara by saying "Zara" followed by a command:
+## 🏆 Hackathon-Ready, Real-World Impact
+- Accessibility for the visually impaired
+- Productivity (meeting summarization, email, translation)
+- Environmental awareness (waste sorting, sound detection)
+- Extensible for smart home, AR, and more
 
-- "Zara, what time is it?"
-- "Zara, what's the weather in London?"
-- "Zara, play Bohemian Rhapsody"
-- "Zara, tell me about Albert Einstein"
-- "Zara, tell me a joke"
-- "Zara, search for pasta recipes"
-- "Zara, open youtube"
-- "Zara, open file Documents report.docx"
-- "Zara, open Desktop presentation.pptx"
-- "Zara, what's the news today?"
-- "Zara, explain quantum computing" (uses Groq AI)
-- "Zara, what is the meaning of life?" (uses Groq AI)
+## 📚 Extending Zara
+- Add new skills by editing `main.py` and following the command pattern
+- Integrate with APIs, IoT devices, or AR overlays for even more futuristic features
 
-For complex questions or general conversation, Zara will automatically use the Groq API to provide intelligent responses.
-
-## Configuration
-
-You can customize Zara by modifying the parameters in `main.py`:
-
-- Change the voice by modifying the voice property
-- Adjust the speech rate
-- Add or modify commands in the `execute_command` function
-
-## Opening Files and Websites
-
-Zara can intelligently determine whether you want to open a file or a website:
-
-### How Zara Decides Between Files and Websites
-
-When you say "Zara, open something", Zara uses the following decision process:
-
-1. **Explicit Commands** (most certain):
-   - If you say "open file resume" → Zara treats it as a file
-   - If you say "open website facebook" → Zara treats it as a website
-
-2. **Path Detection** (very certain):
-   - If it's an existing file path → Zara opens it as a file
-   - If it contains path separators (\ or /) → Zara searches for it as a file
-
-3. **Location Detection** (very certain):
-   - If it starts with a common location (Desktop, Documents, etc.) → Zara searches for it as a file
-
-4. **Website Recognition** (very certain):
-   - If it contains web indicators (.com, www., http:, etc.) → Zara opens it as a website
-   - If it's a common website name (google, youtube, facebook, etc.) → Zara opens it as a website
-
-5. **Ambiguous Cases** (least certain):
-   - For anything else, Zara will:
-     - First try to find it as a file in common locations
-     - If no file is found, open it as a website (adding .com)
-
-Zara always tells you what it's doing with feedback like "Looking for file..." or "Opening website..."
-
-### File Opening Functionality
-
-- **Common Locations**: Say "open file [location] [filename]" where location can be:
-  - Documents
-  - Downloads
-  - Desktop
-  - Pictures
-  - Music
-  - Videos
-
-- **Direct Paths**: Say "open [full path]" for files anywhere on your system:
-  - "Zara, open C:\Users\username\Documents\report.pdf"
-
-- **No Extension Required**: You don't need to specify file extensions:
-  - Simply say "Zara, open Desktop resume" to open resume.docx or any file named resume with any extension
-  - The assistant will automatically find the matching file regardless of its extension
-
-- **Case-Insensitive Search**: File searching is completely case-insensitive:
-  - Commands like "Zara, open DESKTOP Resume" or "Zara, open desktop RESUME" all work the same
-  - Location names and filenames are matched regardless of capitalization
-
-- **Fuzzy Name Matching**: Zara can find files that partially match what you said:
-  - If you say "Zara, open resume" and have a file named "resume_2023.docx", Zara will find it
-
-- **Smart Multi-Location Search**: 
-  - Simply say "Zara, open resume" without specifying location
-  - Zara will search Desktop, Documents, Downloads, and current directory automatically
-  - No need to remember where you stored a file
-
-- **Recursive Search**:
-  - Zara searches in subdirectories, not just the top level
-  - Files in nested folders will be found automatically
-
-- **Intelligent Prioritization**:
-  - When multiple matching files exist, Zara prioritizes by relevance score and recency
-  - Most recently modified files that closely match your request are opened first
-
-## Groq AI Integration
-
-The integration with Groq's LLM provides Zara with advanced capabilities:
-
-- More natural and contextual conversations
-- Ability to answer complex questions
-- Explaining complicated topics
-- General knowledge beyond the built-in capabilities
-
-The assistant will automatically use Groq AI when:
-- A question starts with "ask," "answer," or "explain"
-- The command doesn't match any of the predefined command patterns
-
-## Troubleshooting
-
-- If voice recognition isn't working, check your microphone settings
-- Ensure all API keys are correctly set in the `.env` file
-- For issues with Groq API responses, verify your API key and internet connection
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+## 📝 License
+MIT License

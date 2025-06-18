@@ -25,6 +25,11 @@ from PIL import Image
 import io
 import urllib.request
 import numpy as np
+import shutil
+import pytesseract
+from googletrans import Translator
+import sounddevice as sd
+import scipy.io.wavfile as wav
 
 # Load environment variables
 load_dotenv()
@@ -260,6 +265,25 @@ def describe_camera_image():
             return f"Error describing image: {e}"
     return "Failed to capture image from camera."
 
+def ocr_and_translate_camera_text(target_lang='en'):
+    img_bytes = capture_camera_image()
+    if img_bytes:
+        try:
+            # Convert bytes to PIL Image
+            image = Image.open(io.BytesIO(img_bytes))
+            text = pytesseract.image_to_string(image)
+            if not text.strip():
+                talk("I couldn't find any readable text in the camera view.")
+                return
+            talk(f"I see the following text: {text}")
+            translator = Translator()
+            translated = translator.translate(text, dest=target_lang)
+            talk(f"Translated text: {translated.text}")
+        except Exception as e:
+            talk(f"Error reading or translating text: {e}")
+    else:
+        talk("Failed to capture image from camera.")
+
 def execute_command(command):
     """Process and execute user commands."""
     if 'play' in command:
@@ -400,6 +424,25 @@ def execute_command(command):
     elif command.startswith("start live camera description"):
         live_camera_description()
         return True
+    elif command.startswith("read and translate text from camera"):
+        # Parse target language if specified
+        target_lang = 'en'
+        if 'to ' in command:
+            target_lang = command.split('to ')[-1].strip()
+        ocr_and_translate_camera_text(target_lang)
+        return True
+    elif command.startswith("summarize meeting"):
+        record_and_summarize_meeting()
+        return True
+    elif command.startswith("detect environmental sound"):
+        detect_environmental_sound()
+        return True
+    elif command.startswith("recognize gesture"):
+        recognize_gesture()
+        return True
+    elif command.startswith("waste sorting assistant"):
+        waste_sorting_assistant()
+        return True
     else:
         # For complex or unrecognized commands, use AI
         response = get_ai_response(command)
@@ -446,10 +489,29 @@ def download_mobilenet_ssd():
     model_url = 'https://github.com/chuanqi305/MobileNet-SSD/raw/master/MobileNetSSD_deploy.caffemodel'
     proto_file = 'MobileNetSSD_deploy.prototxt'
     model_file = 'MobileNetSSD_deploy.caffemodel'
-    if not os.path.exists(proto_file):
-        urllib.request.urlretrieve(proto_url, proto_file)
-    if not os.path.exists(model_file):
-        urllib.request.urlretrieve(model_url, model_file)
+    def download_file(url, file):
+        try:
+            urllib.request.urlretrieve(url, file)
+            return True
+        except Exception as e:
+            if os.path.exists(file):
+                os.remove(file)
+            print(f"Failed to download {file}: {e}")
+            return False
+    # Check and download prototxt
+    if not os.path.exists(proto_file) or os.path.getsize(proto_file) < 1000:
+        if os.path.exists(proto_file):
+            os.remove(proto_file)
+        print(f"Downloading {proto_file}...")
+        if not download_file(proto_url, proto_file):
+            raise RuntimeError(f"Could not download {proto_file}. Please download it manually from {proto_url} and place it in the project directory.")
+    # Check and download caffemodel
+    if not os.path.exists(model_file) or os.path.getsize(model_file) < 100000:
+        if os.path.exists(model_file):
+            os.remove(model_file)
+        print(f"Downloading {model_file}...")
+        if not download_file(model_url, model_file):
+            raise RuntimeError(f"Could not download {model_file}. Please download it manually from {model_url} and place it in the project directory.")
     return proto_file, model_file
 
 # Object classes for MobileNet-SSD
@@ -494,6 +556,40 @@ def live_camera_description():
             break
     cap.release()
     cv2.destroyAllWindows()
+
+# Meeting summarization: record, transcribe, summarize
+def record_and_summarize_meeting(duration=30):
+    talk("Recording meeting audio now.")
+    recognizer = sr.Recognizer()
+    with sr.Microphone() as source:
+        audio = recognizer.listen(source, phrase_time_limit=duration)
+    try:
+        text = recognizer.recognize_google(audio)
+        talk("Transcribing and summarizing the meeting.")
+        summary = get_ai_response(f"Summarize this meeting transcript: {text}")
+        talk(f"Meeting summary: {summary}")
+    except Exception as e:
+        talk(f"Error transcribing or summarizing: {e}")
+
+# Environmental sound detection (stub)
+def detect_environmental_sound(duration=5):
+    talk("Listening for environmental sounds.")
+    fs = 44100
+    try:
+        audio = sd.rec(int(duration * fs), samplerate=fs, channels=1)
+        sd.wait()
+        # For demo, just say we heard something
+        talk("I heard a sound. (Advanced sound classification can be added here.)")
+    except Exception as e:
+        talk(f"Error detecting sound: {e}")
+
+# Gesture recognition stub
+def recognize_gesture():
+    talk("Gesture recognition is not yet implemented, but this is where it would go.")
+
+# Waste sorting assistant stub
+def waste_sorting_assistant():
+    talk("Waste sorting is not yet implemented, but this is where it would go. Show an object to the camera and Zara will classify it as recyclable, compost, or trash in the future.")
 
 if __name__ == "__main__":
     run_zara()

@@ -18,3 +18,7 @@ sqlite3
 smtplib
 opencv-python
 Pillow
+pytesseract
+googletrans==4.0.0-rc1
+sounddevice
+scipy
