@@ -216,8 +216,94 @@ def get_weather(city: str) -> str:
     """
     return f"TODO: Fetch weather for {city}."
 
-def send_email(to: str, subject: str, body: str) -> str:
+def add_contact(name: str, phone: str = "", email: str = "") -> str:
+    """Add a new contact to the address book."""
+    try:
+        from zara.contacts import get_contacts_manager
+        
+        contacts = get_contacts_manager()
+        if contacts.add_contact(name, phone, email):
+            return f"✅ Contact '{name}' added successfully"
+        else:
+            return f"❌ Failed to add contact '{name}'"
+            
+    except Exception as e:
+        return f"Error adding contact: {str(e)}"
+
+def get_contact(name: str) -> str:
+    """Get contact information by name."""
+    try:
+        from zara.contacts import get_contacts_manager
+        
+        contacts = get_contacts_manager()
+        contact = contacts.get_contact(name)
+        
+        if contact:
+            return f"👤 {contact.name}\n📞 {contact.phone}\n📧 {contact.email}"
+        else:
+            return f"❌ Contact '{name}' not found"
+            
+    except Exception as e:
+        return f"Error retrieving contact: {str(e)}"
+
+def list_contacts() -> str:
+    """List all contacts in the address book."""
+    try:
+        from zara.contacts import list_all_contacts
+        return list_all_contacts()
+        
+    except Exception as e:
+        return f"Error listing contacts: {str(e)}"
+
+def send_email_to_contact(contact_name: str, subject: str = None, body: str = None) -> str:
+    """Send email to a contact by name using web automation."""
+    try:
+        from zara.contacts import get_contacts_email_integration
+        
+        integration = get_contacts_email_integration()
+        result = integration.send_email_to_contact(contact_name, subject, body)
+        return result
+        
+    except Exception as e:
+        return f"Error sending email to contact: {str(e)}"
+
+def send_email(to: str = None, subject: str = None, body: str = None, sender: str = None, attachments: list = None) -> str:
     """
-    TODO: Implement email sending using smtplib.
+    Send email using web automation - opens Gmail and fills content automatically.
+    This avoids SMTP authentication issues while providing a seamless experience.
     """
-    return f"TODO: Send email to {to} with subject: {subject}." 
+    try:
+        # Import web email automation
+        from zara.email_web_automation import send_email_web_integrated
+        
+        # Send email through web automation
+        result = send_email_web_integrated(
+            to=to,
+            subject=subject,
+            body=body,
+            tone='friendly'  # Default to friendly tone
+        )
+        
+        return result
+        
+    except ImportError as e:
+        # Fallback to email plugin if web automation not available
+        try:
+            from plugins.email_sender.plugin import create_plugin
+            from zara.security.keychain import KeychainManager
+            
+            keychain = KeychainManager()
+            email_plugin = create_plugin(keychain_manager=keychain)
+            
+            result = email_plugin.send_email_command(
+                to=to,
+                subject=subject,
+                body=body,
+                sender=sender,
+                attachments=attachments or []
+            )
+            return result
+        except:
+            return "Email functionality not available. Please install required dependencies."
+    except Exception as e:
+        return f"Error sending email: {str(e)}" 

@@ -25,3 +25,9 @@ selenium>=4.0.0
 webdriver-manager>=3.8.0
 sounddevice>=0.4.6
 scipy>=1.10.0
+pyyaml>=6.0.0
+keyring>=24.0.0
+pywin32>=306; sys_platform == "win32"
+pyperclip>=1.8.2
+pygetwindow>=0.0.9
+psutil>=5.9.0

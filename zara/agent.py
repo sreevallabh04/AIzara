@@ -81,6 +81,45 @@ class ZaraAgent:
         
         # Register direct command patterns for instant responses with fuzzy matching for voice recognition
         self._command_patterns = [
+            # Contact-based email patterns (highest priority)
+            (re.compile(r"send\s+(?:an?\s+)?email\s+to\s+([a-zA-Z\s]+?)(?:\s+about\s+(.+?))?(?:\s+saying\s+(.+?))?$", re.IGNORECASE), 
+             self._direct_send_email_to_contact),
+            
+            (re.compile(r"email\s+([a-zA-Z\s]+?)(?:\s+about\s+(.+?))?(?:\s+saying\s+(.+?))?$", re.IGNORECASE), 
+             self._direct_send_email_to_contact),
+            
+            (re.compile(r"compose\s+(?:an?\s+)?email\s+to\s+([a-zA-Z\s]+?)(?:\s+about\s+(.+?))?(?:\s+saying\s+(.+?))?$", re.IGNORECASE), 
+             self._direct_send_email_to_contact),
+             
+            (re.compile(r"write\s+(?:an?\s+)?email\s+to\s+([a-zA-Z\s]+?)(?:\s+about\s+(.+?))?(?:\s+saying\s+(.+?))?$", re.IGNORECASE), 
+             self._direct_send_email_to_contact),
+            
+            # General email patterns (lower priority)
+            (re.compile(r"send\s+(?:an?\s+)?email", re.IGNORECASE), 
+             self._direct_send_email),
+            
+            (re.compile(r"compose\s+(?:an?\s+)?email", re.IGNORECASE), 
+             self._direct_send_email),
+             
+            (re.compile(r"write\s+(?:an?\s+)?email", re.IGNORECASE), 
+             self._direct_send_email),
+             
+            (re.compile(r"email\s+someone", re.IGNORECASE), 
+             self._direct_send_email),
+            
+            # Contact management patterns
+            (re.compile(r"add\s+contact\s+([a-zA-Z\s]+?)(?:\s+phone\s+([+\d\s\-()]+?))?(?:\s+email\s+([\w\.\-_]+@[\w\.\-_]+))?", re.IGNORECASE), 
+             self._direct_add_contact),
+             
+            (re.compile(r"show\s+(?:all\s+)?contacts", re.IGNORECASE), 
+             self._direct_list_contacts),
+             
+            (re.compile(r"list\s+(?:all\s+)?contacts", re.IGNORECASE), 
+             self._direct_list_contacts),
+             
+            (re.compile(r"find\s+contact\s+([a-zA-Z\s]+)", re.IGNORECASE), 
+             self._direct_get_contact),
+            
             # Open website patterns with common speech recognition variations
             (re.compile(r"open\s+(youtube|you ?tube|your ?tube|google|gmail|face ?book|twitter|git ?hub|net ?flix|amazon)", re.IGNORECASE), 
              self._direct_open_website),
@@ -345,6 +384,76 @@ Response:"""
         except Exception as e:
             logger.error(f"Failed to play media: {str(e)}")
             return "play_media_error", f"I tried to play {source}, but encountered an error: {str(e)}"
+    
+    async def _direct_send_email(self, match: re.Match, message: str) -> Tuple[str, str]:
+        """
+        Directly handle email sending with web automation.
+        """
+        try:
+            # Use the web automation email system
+            result = tools.send_email()
+            return "send_email", result
+        except Exception as e:
+            logger.error(f"Failed to send email: {str(e)}")
+            return "send_email_error", f"I tried to help you send an email, but encountered an error: {str(e)}"
+    
+    async def _direct_send_email_to_contact(self, match: re.Match, message: str) -> Tuple[str, str]:
+        """
+        Directly handle email sending to a specific contact.
+        """
+        try:
+            contact_name = match.group(1).strip()
+            subject = match.group(2).strip() if len(match.groups()) > 1 and match.group(2) else None
+            body = match.group(3).strip() if len(match.groups()) > 2 and match.group(3) else None
+            
+            # Use the contact-based email system
+            result = tools.send_email_to_contact(contact_name, subject, body)
+            return "send_email_to_contact", result
+            
+        except Exception as e:
+            logger.error(f"Failed to send email to contact: {str(e)}")
+            return "send_email_to_contact_error", f"I tried to send an email to the contact, but encountered an error: {str(e)}"
+    
+    async def _direct_add_contact(self, match: re.Match, message: str) -> Tuple[str, str]:
+        """
+        Directly handle adding a new contact.
+        """
+        try:
+            name = match.group(1).strip()
+            phone = match.group(2).strip() if len(match.groups()) > 1 and match.group(2) else ""
+            email = match.group(3).strip() if len(match.groups()) > 2 and match.group(3) else ""
+            
+            result = tools.add_contact(name, phone, email)
+            return "add_contact", result
+            
+        except Exception as e:
+            logger.error(f"Failed to add contact: {str(e)}")
+            return "add_contact_error", f"I tried to add the contact, but encountered an error: {str(e)}"
+    
+    async def _direct_list_contacts(self, match: re.Match, message: str) -> Tuple[str, str]:
+        """
+        Directly handle listing all contacts.
+        """
+        try:
+            result = tools.list_contacts()
+            return "list_contacts", result
+            
+        except Exception as e:
+            logger.error(f"Failed to list contacts: {str(e)}")
+            return "list_contacts_error", f"I tried to list your contacts, but encountered an error: {str(e)}"
+    
+    async def _direct_get_contact(self, match: re.Match, message: str) -> Tuple[str, str]:
+        """
+        Directly handle getting a specific contact.
+        """
+        try:
+            contact_name = match.group(1).strip()
+            result = tools.get_contact(contact_name)
+            return "get_contact", result
+            
+        except Exception as e:
+            logger.error(f"Failed to get contact: {str(e)}")
+            return "get_contact_error", f"I tried to find the contact, but encountered an error: {str(e)}"
     
     # Tool Handlers
     async def _handle_email(self, params: Dict[str, Any]) -> Dict[str, Any]:
