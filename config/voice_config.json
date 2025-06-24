@@ -1,0 +1,12 @@
+{
+    "input_timeout": 5.0,
+    "vad_mode": 3,
+    "silence_threshold": 0.1,
+    "speech_rate": 180,
+    "volume": 0.7,
+    "whisper_model": "base",
+    "sample_rate": 16000,
+    "channels": 1,
+    "chunk_size": 1024,
+    "format": 8
+}
